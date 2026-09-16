@@ -16,7 +16,7 @@ Includes an interactive **D3.js Tree Visualizer** to inspect and replay search r
 - **Fast Discriminative Pruning & Scoring**: Traditional MCTS with LLMs suffers from sluggish text generation and unpredictable parsing. This agent uses TypeSafe Jev System One models to evaluate validity, calculate priors, and score states directly in code with zero token parsing.
 - **Single-Call Batched Pruning (`Noul`)**: Evaluates all candidate actions in parallel in a single `system_one()` call. No per-action network roundtrips, no context rot.
 - **Dynamic Prime Branching (`Choice`)**: Dynamically samples expansion widths from prime numbers ($2, 3, 5, 7, 11, 13$) based on state uncertainty and goal complexity.
-- **Closed-Loop Execution & Grounding**: Follows a strict cycle of *Plan & Choose $\rightarrow$ Execute $\rightarrow$ Review $\rightarrow$ Adapt $\rightarrow$ Assess*. Only the immediate winning action is executed; git diffs and terminal observations are folded back into context for subsequent decisions.
+- **Closed-Loop Execution & Grounding**: Follows a strict cycle of Plan & Choose -> Execute -> Review -> Adapt -> Assess. Only the immediate winning action is executed; git diffs and terminal observations are folded back into context for subsequent decisions.
 - **Interactive D3 Visualizer**: Load generated JSON search logs directly in `visualizer.html` to replay search trees, inspect PUCT scores, view batched Noul gates, and analyze state trajectories.
 
 ---
