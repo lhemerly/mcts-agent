@@ -1,0 +1,14 @@
+[project]
+name = "mcts-agent"
+version = "0.1.0"
+description = "Discriminative MCTS Agent using TypeSafe SDK (Choice, Score, Noul) + Gemini 3.8 Flash via antigravity CLI"
+
+[run]
+entrypoint = "main.py"
+
+[dependencies]
+python = ">=3.10"
+packages = [
+    "typesafe-sdk",
+    "python-dotenv",
+]

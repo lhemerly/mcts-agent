@@ -1,0 +1,8 @@
+anyio==4.15.1
+google-genai==2.23.0
+httpx==0.28.1
+httpx2==2.13.0
+pydantic==2.13.5
+pydantic_core==2.46.5
+python-dotenv==1.2.3
+typesafe-sdk==0.6.0

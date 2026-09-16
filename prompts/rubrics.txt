@@ -1,0 +1,22 @@
+# Score Rubric — MCTS Progress Evaluation
+#
+# Used by primitives.evaluate_state() when calling the TypeSafe Score primitive.
+# The rubric is a 10-level ordered scale (0 → 9).
+# TypeSafe's Score returns a probability-weighted float that can land between
+# levels (e.g., 4.7 means "between Moderate and Good progress").
+#
+# Level 0  — Completely off-track: no progress, wrong direction
+# Level 1  — Barely started: minimal relevant action taken
+# Level 2  — Early steps: some alignment with goal, but far from done
+# Level 3  — Partial progress: notable steps completed, still incomplete
+# Level 4  — Moderate progress: roughly halfway to the goal
+# Level 5  — Good progress: past halfway, significant work done
+# Level 6  — Substantial progress: most sub-tasks resolved
+# Level 7  — Strong progress: only minor gaps remain
+# Level 8  — Near completion: finishing touches needed
+# Level 9  — Goal fully achieved: task complete, no remaining work
+#
+# Notes for prompt engineering:
+# - Anchor level 0 and 9 explicitly in your Score instructions.
+# - Rephrase the instructions to match your specific domain (coding, research, etc.)
+# - The `criteria` list passed to Score() maps index-for-index to these levels.

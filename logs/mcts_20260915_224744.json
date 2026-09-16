@@ -1,0 +1,992 @@
+{
+  "meta": {
+    "goal": "Design a minimal REST API in Python (FastAPI) for a task management app: endpoints for creating, listing, updating, and deleting tasks, with in-memory storage.",
+    "initial_state": "We are starting from scratch. No code exists yet. The API must support: POST /tasks (create), GET /tasks (list all), PATCH /tasks/{id} (update), DELETE /tasks/{id} (delete). Storage is in-memory (a Python dict). No auth required.",
+    "iterations": 10,
+    "timestamp": "2026-09-16T01:47:44.692339+00:00"
+  },
+  "events": [
+    {
+      "type": "init",
+      "node_id": "n0",
+      "state": "We are starting from scratch. No code exists yet. The API must support: POST /tasks (create), GET /tasks (list all), PATCH /tasks/{id} (update), DELETE /tasks/{id} (delete). Storage is in-memory (a Python dict). No auth required."
+    },
+    {
+      "type": "iteration_start",
+      "i": 1
+    },
+    {
+      "type": "select",
+      "path": [
+        "n0"
+      ]
+    },
+    {
+      "type": "eval",
+      "node_id": "n0"
+    },
+    {
+      "type": "score",
+      "node_id": "n0",
+      "value": 8.9835
+    },
+    {
+      "type": "candidates",
+      "candidates": [
+        "Search for relevant documentation online",
+        "Draft an initial outline and review it",
+        "Summarise findings and propose next step"
+      ]
+    },
+    {
+      "type": "noul",
+      "action": "Search for relevant documentation online",
+      "valid": false,
+      "confidence": 0.7583
+    },
+    {
+      "type": "noul",
+      "action": "Draft an initial outline and review it",
+      "valid": true,
+      "confidence": 0.8027
+    },
+    {
+      "type": "noul",
+      "action": "Summarise findings and propose next step",
+      "valid": false,
+      "confidence": 0.7561
+    },
+    {
+      "type": "new_node",
+      "node_id": "n1",
+      "parent_id": "n0",
+      "action": "Draft an initial outline and review it",
+      "prior": 1.0,
+      "state": "We are starting from scratch. No code exists yet. The API must support: POST /tasks (create), GET /tasks (list all), PATCH /tasks/{id} (update), DELETE /tasks/{id} (delete). Storage is in-memory (a Python dict). No auth required.\n[Action taken]: Draft an initial outline and review it"
+    },
+    {
+      "type": "backprop_start",
+      "path": [
+        "n0"
+      ],
+      "value": 8.9835
+    },
+    {
+      "type": "node_update",
+      "node_id": "n0",
+      "visits": 1,
+      "value_sum": 8.9835
+    },
+    {
+      "type": "iteration_end",
+      "i": 1
+    },
+    {
+      "type": "iteration_start",
+      "i": 2
+    },
+    {
+      "type": "select",
+      "path": [
+        "n0",
+        "n1"
+      ]
+    },
+    {
+      "type": "eval",
+      "node_id": "n1"
+    },
+    {
+      "type": "score",
+      "node_id": "n1",
+      "value": 1.1247
+    },
+    {
+      "type": "candidates",
+      "candidates": [
+        "Identify potential blockers and mitigate them",
+        "Draft an initial outline and review it",
+        "Verify assumptions by checking existing data"
+      ]
+    },
+    {
+      "type": "noul",
+      "action": "Identify potential blockers and mitigate them",
+      "valid": true,
+      "confidence": 0.8975
+    },
+    {
+      "type": "noul",
+      "action": "Draft an initial outline and review it",
+      "valid": true,
+      "confidence": 0.8624
+    },
+    {
+      "type": "noul",
+      "action": "Verify assumptions by checking existing data",
+      "valid": true,
+      "confidence": 0.9
+    },
+    {
+      "type": "new_node",
+      "node_id": "n2",
+      "parent_id": "n1",
+      "action": "Identify potential blockers and mitigate them",
+      "prior": 0.3932,
+      "state": "We are starting from scratch. No code exists yet. The API must support: POST /tasks (create), GET /tasks (list all), PATCH /tasks/{id} (update), DELETE /tasks/{id} (delete). Storage is in-memory (a Python dict). No auth required.\n[Action taken]: Draft an initial outline and review it\n[Action taken]: Identify potential blockers and mitigate them"
+    },
+    {
+      "type": "new_node",
+      "node_id": "n3",
+      "parent_id": "n1",
+      "action": "Draft an initial outline and review it",
+      "prior": 0.2468,
+      "state": "We are starting from scratch. No code exists yet. The API must support: POST /tasks (create), GET /tasks (list all), PATCH /tasks/{id} (update), DELETE /tasks/{id} (delete). Storage is in-memory (a Python dict). No auth required.\n[Action taken]: Draft an initial outline and review it\n[Action taken]: Draft an initial outline and review it"
+    },
+    {
+      "type": "new_node",
+      "node_id": "n4",
+      "parent_id": "n1",
+      "action": "Verify assumptions by checking existing data",
+      "prior": 0.3601,
+      "state": "We are starting from scratch. No code exists yet. The API must support: POST /tasks (create), GET /tasks (list all), PATCH /tasks/{id} (update), DELETE /tasks/{id} (delete). Storage is in-memory (a Python dict). No auth required.\n[Action taken]: Draft an initial outline and review it\n[Action taken]: Verify assumptions by checking existing data"
+    },
+    {
+      "type": "backprop_start",
+      "path": [
+        "n0",
+        "n1"
+      ],
+      "value": 1.1247
+    },
+    {
+      "type": "node_update",
+      "node_id": "n1",
+      "visits": 1,
+      "value_sum": 1.1247
+    },
+    {
+      "type": "node_update",
+      "node_id": "n0",
+      "visits": 2,
+      "value_sum": 10.1082
+    },
+    {
+      "type": "iteration_end",
+      "i": 2
+    },
+    {
+      "type": "iteration_start",
+      "i": 3
+    },
+    {
+      "type": "select",
+      "path": [
+        "n0",
+        "n1",
+        "n2"
+      ]
+    },
+    {
+      "type": "eval",
+      "node_id": "n2"
+    },
+    {
+      "type": "score",
+      "node_id": "n2",
+      "value": 1.7365
+    },
+    {
+      "type": "candidates",
+      "candidates": [
+        "Decompose the problem into smaller sub-tasks",
+        "Search for relevant documentation online",
+        "Consult domain-specific knowledge base"
+      ]
+    },
+    {
+      "type": "noul",
+      "action": "Decompose the problem into smaller sub-tasks",
+      "valid": true,
+      "confidence": 0.8437
+    },
+    {
+      "type": "noul",
+      "action": "Search for relevant documentation online",
+      "valid": true,
+      "confidence": 0.8406
+    },
+    {
+      "type": "noul",
+      "action": "Consult domain-specific knowledge base",
+      "valid": true,
+      "confidence": 0.9269
+    },
+    {
+      "type": "new_node",
+      "node_id": "n5",
+      "parent_id": "n2",
+      "action": "Decompose the problem into smaller sub-tasks",
+      "prior": 0.2599,
+      "state": "We are starting from scratch. No code exists yet. The API must support: POST /tasks (create), GET /tasks (list all), PATCH /tasks/{id} (update), DELETE /tasks/{id} (delete). Storage is in-memory (a Python dict). No auth required.\n[Action taken]: Draft an initial outline and review it\n[Action taken]: Identify potential blockers and mitigate them\n[Action taken]: Decompose the problem into smaller sub-tasks"
+    },
+    {
+      "type": "new_node",
+      "node_id": "n6",
+      "parent_id": "n2",
+      "action": "Search for relevant documentation online",
+      "prior": 0.3599,
+      "state": "We are starting from scratch. No code exists yet. The API must support: POST /tasks (create), GET /tasks (list all), PATCH /tasks/{id} (update), DELETE /tasks/{id} (delete). Storage is in-memory (a Python dict). No auth required.\n[Action taken]: Draft an initial outline and review it\n[Action taken]: Identify potential blockers and mitigate them\n[Action taken]: Search for relevant documentation online"
+    },
+    {
+      "type": "new_node",
+      "node_id": "n7",
+      "parent_id": "n2",
+      "action": "Consult domain-specific knowledge base",
+      "prior": 0.3802,
+      "state": "We are starting from scratch. No code exists yet. The API must support: POST /tasks (create), GET /tasks (list all), PATCH /tasks/{id} (update), DELETE /tasks/{id} (delete). Storage is in-memory (a Python dict). No auth required.\n[Action taken]: Draft an initial outline and review it\n[Action taken]: Identify potential blockers and mitigate them\n[Action taken]: Consult domain-specific knowledge base"
+    },
+    {
+      "type": "backprop_start",
+      "path": [
+        "n0",
+        "n1",
+        "n2"
+      ],
+      "value": 1.7365
+    },
+    {
+      "type": "node_update",
+      "node_id": "n2",
+      "visits": 1,
+      "value_sum": 1.7365
+    },
+    {
+      "type": "node_update",
+      "node_id": "n1",
+      "visits": 2,
+      "value_sum": 2.8611
+    },
+    {
+      "type": "node_update",
+      "node_id": "n0",
+      "visits": 3,
+      "value_sum": 11.8447
+    },
+    {
+      "type": "iteration_end",
+      "i": 3
+    },
+    {
+      "type": "iteration_start",
+      "i": 4
+    },
+    {
+      "type": "select",
+      "path": [
+        "n0",
+        "n1",
+        "n4"
+      ]
+    },
+    {
+      "type": "eval",
+      "node_id": "n4"
+    },
+    {
+      "type": "score",
+      "node_id": "n4",
+      "value": 3.8028
+    },
+    {
+      "type": "candidates",
+      "candidates": [
+        "Decompose the problem into smaller sub-tasks",
+        "Verify assumptions by checking existing data",
+        "Identify potential blockers and mitigate them"
+      ]
+    },
+    {
+      "type": "noul",
+      "action": "Decompose the problem into smaller sub-tasks",
+      "valid": true,
+      "confidence": 0.8589
+    },
+    {
+      "type": "noul",
+      "action": "Verify assumptions by checking existing data",
+      "valid": true,
+      "confidence": 0.982
+    },
+    {
+      "type": "noul",
+      "action": "Identify potential blockers and mitigate them",
+      "valid": false,
+      "confidence": 0.766
+    },
+    {
+      "type": "new_node",
+      "node_id": "n8",
+      "parent_id": "n4",
+      "action": "Decompose the problem into smaller sub-tasks",
+      "prior": 0.3486,
+      "state": "We are starting from scratch. No code exists yet. The API must support: POST /tasks (create), GET /tasks (list all), PATCH /tasks/{id} (update), DELETE /tasks/{id} (delete). Storage is in-memory (a Python dict). No auth required.\n[Action taken]: Draft an initial outline and review it\n[Action taken]: Verify assumptions by checking existing data\n[Action taken]: Decompose the problem into smaller sub-tasks"
+    },
+    {
+      "type": "new_node",
+      "node_id": "n9",
+      "parent_id": "n4",
+      "action": "Verify assumptions by checking existing data",
+      "prior": 0.6514,
+      "state": "We are starting from scratch. No code exists yet. The API must support: POST /tasks (create), GET /tasks (list all), PATCH /tasks/{id} (update), DELETE /tasks/{id} (delete). Storage is in-memory (a Python dict). No auth required.\n[Action taken]: Draft an initial outline and review it\n[Action taken]: Verify assumptions by checking existing data\n[Action taken]: Verify assumptions by checking existing data"
+    },
+    {
+      "type": "backprop_start",
+      "path": [
+        "n0",
+        "n1",
+        "n4"
+      ],
+      "value": 3.8028
+    },
+    {
+      "type": "node_update",
+      "node_id": "n4",
+      "visits": 1,
+      "value_sum": 3.8028
+    },
+    {
+      "type": "node_update",
+      "node_id": "n1",
+      "visits": 3,
+      "value_sum": 6.6639
+    },
+    {
+      "type": "node_update",
+      "node_id": "n0",
+      "visits": 4,
+      "value_sum": 15.6475
+    },
+    {
+      "type": "iteration_end",
+      "i": 4
+    },
+    {
+      "type": "iteration_start",
+      "i": 5
+    },
+    {
+      "type": "select",
+      "path": [
+        "n0",
+        "n1",
+        "n3"
+      ]
+    },
+    {
+      "type": "eval",
+      "node_id": "n3"
+    },
+    {
+      "type": "score",
+      "node_id": "n3",
+      "value": 5.2537
+    },
+    {
+      "type": "candidates",
+      "candidates": [
+        "Search for relevant documentation online",
+        "Run a quick prototype to test the hypothesis",
+        "Identify potential blockers and mitigate them"
+      ]
+    },
+    {
+      "type": "noul",
+      "action": "Search for relevant documentation online",
+      "valid": false,
+      "confidence": 0.6794
+    },
+    {
+      "type": "noul",
+      "action": "Run a quick prototype to test the hypothesis",
+      "valid": false,
+      "confidence": 0.5821
+    },
+    {
+      "type": "noul",
+      "action": "Identify potential blockers and mitigate them",
+      "valid": false,
+      "confidence": 0.6951
+    },
+    {
+      "type": "new_node",
+      "node_id": "n10",
+      "parent_id": "n3",
+      "action": "Search for relevant documentation online",
+      "prior": 0.4909,
+      "state": "We are starting from scratch. No code exists yet. The API must support: POST /tasks (create), GET /tasks (list all), PATCH /tasks/{id} (update), DELETE /tasks/{id} (delete). Storage is in-memory (a Python dict). No auth required.\n[Action taken]: Draft an initial outline and review it\n[Action taken]: Draft an initial outline and review it\n[Action taken]: Search for relevant documentation online"
+    },
+    {
+      "type": "new_node",
+      "node_id": "n11",
+      "parent_id": "n3",
+      "action": "Run a quick prototype to test the hypothesis",
+      "prior": 0.3338,
+      "state": "We are starting from scratch. No code exists yet. The API must support: POST /tasks (create), GET /tasks (list all), PATCH /tasks/{id} (update), DELETE /tasks/{id} (delete). Storage is in-memory (a Python dict). No auth required.\n[Action taken]: Draft an initial outline and review it\n[Action taken]: Draft an initial outline and review it\n[Action taken]: Run a quick prototype to test the hypothesis"
+    },
+    {
+      "type": "new_node",
+      "node_id": "n12",
+      "parent_id": "n3",
+      "action": "Identify potential blockers and mitigate them",
+      "prior": 0.1753,
+      "state": "We are starting from scratch. No code exists yet. The API must support: POST /tasks (create), GET /tasks (list all), PATCH /tasks/{id} (update), DELETE /tasks/{id} (delete). Storage is in-memory (a Python dict). No auth required.\n[Action taken]: Draft an initial outline and review it\n[Action taken]: Draft an initial outline and review it\n[Action taken]: Identify potential blockers and mitigate them"
+    },
+    {
+      "type": "backprop_start",
+      "path": [
+        "n0",
+        "n1",
+        "n3"
+      ],
+      "value": 5.2537
+    },
+    {
+      "type": "node_update",
+      "node_id": "n3",
+      "visits": 1,
+      "value_sum": 5.2537
+    },
+    {
+      "type": "node_update",
+      "node_id": "n1",
+      "visits": 4,
+      "value_sum": 11.9176
+    },
+    {
+      "type": "node_update",
+      "node_id": "n0",
+      "visits": 5,
+      "value_sum": 20.9012
+    },
+    {
+      "type": "iteration_end",
+      "i": 5
+    },
+    {
+      "type": "iteration_start",
+      "i": 6
+    },
+    {
+      "type": "select",
+      "path": [
+        "n0",
+        "n1",
+        "n4",
+        "n9"
+      ]
+    },
+    {
+      "type": "eval",
+      "node_id": "n9"
+    },
+    {
+      "type": "score",
+      "node_id": "n9",
+      "value": 9.3629
+    },
+    {
+      "type": "candidates",
+      "candidates": [
+        "Search for relevant documentation online",
+        "Run a quick prototype to test the hypothesis",
+        "Draft an initial outline and review it"
+      ]
+    },
+    {
+      "type": "noul",
+      "action": "Search for relevant documentation online",
+      "valid": false,
+      "confidence": 0.5284
+    },
+    {
+      "type": "noul",
+      "action": "Run a quick prototype to test the hypothesis",
+      "valid": true,
+      "confidence": 0.8101
+    },
+    {
+      "type": "noul",
+      "action": "Draft an initial outline and review it",
+      "valid": true,
+      "confidence": 0.8144
+    },
+    {
+      "type": "new_node",
+      "node_id": "n13",
+      "parent_id": "n9",
+      "action": "Run a quick prototype to test the hypothesis",
+      "prior": 0.7005,
+      "state": "We are starting from scratch. No code exists yet. The API must support: POST /tasks (create), GET /tasks (list all), PATCH /tasks/{id} (update), DELETE /tasks/{id} (delete). Storage is in-memory (a Python dict). No auth required.\n[Action taken]: Draft an initial outline and review it\n[Action taken]: Verify assumptions by checking existing data\n[Action taken]: Verify assumptions by checking existing data\n[Action taken]: Run a quick prototype to test the hypothesis"
+    },
+    {
+      "type": "new_node",
+      "node_id": "n14",
+      "parent_id": "n9",
+      "action": "Draft an initial outline and review it",
+      "prior": 0.2995,
+      "state": "We are starting from scratch. No code exists yet. The API must support: POST /tasks (create), GET /tasks (list all), PATCH /tasks/{id} (update), DELETE /tasks/{id} (delete). Storage is in-memory (a Python dict). No auth required.\n[Action taken]: Draft an initial outline and review it\n[Action taken]: Verify assumptions by checking existing data\n[Action taken]: Verify assumptions by checking existing data\n[Action taken]: Draft an initial outline and review it"
+    },
+    {
+      "type": "backprop_start",
+      "path": [
+        "n0",
+        "n1",
+        "n4",
+        "n9"
+      ],
+      "value": 9.3629
+    },
+    {
+      "type": "node_update",
+      "node_id": "n9",
+      "visits": 1,
+      "value_sum": 9.3629
+    },
+    {
+      "type": "node_update",
+      "node_id": "n4",
+      "visits": 2,
+      "value_sum": 13.1656
+    },
+    {
+      "type": "node_update",
+      "node_id": "n1",
+      "visits": 5,
+      "value_sum": 21.2805
+    },
+    {
+      "type": "node_update",
+      "node_id": "n0",
+      "visits": 6,
+      "value_sum": 30.2641
+    },
+    {
+      "type": "iteration_end",
+      "i": 6
+    },
+    {
+      "type": "iteration_start",
+      "i": 7
+    },
+    {
+      "type": "select",
+      "path": [
+        "n0",
+        "n1",
+        "n4",
+        "n9",
+        "n13"
+      ]
+    },
+    {
+      "type": "eval",
+      "node_id": "n13"
+    },
+    {
+      "type": "score",
+      "node_id": "n13",
+      "value": 5.5896
+    },
+    {
+      "type": "candidates",
+      "candidates": [
+        "Identify potential blockers and mitigate them",
+        "Run a quick prototype to test the hypothesis",
+        "Summarise findings and propose next step"
+      ]
+    },
+    {
+      "type": "noul",
+      "action": "Identify potential blockers and mitigate them",
+      "valid": true,
+      "confidence": 0.8859
+    },
+    {
+      "type": "noul",
+      "action": "Run a quick prototype to test the hypothesis",
+      "valid": true,
+      "confidence": 0.9057
+    },
+    {
+      "type": "noul",
+      "action": "Summarise findings and propose next step",
+      "valid": false,
+      "confidence": 0.6204
+    },
+    {
+      "type": "new_node",
+      "node_id": "n15",
+      "parent_id": "n13",
+      "action": "Identify potential blockers and mitigate them",
+      "prior": 0.5535,
+      "state": "We are starting from scratch. No code exists yet. The API must support: POST /tasks (create), GET /tasks (list all), PATCH /tasks/{id} (update), DELETE /tasks/{id} (delete). Storage is in-memory (a Python dict). No auth required.\n[Action taken]: Draft an initial outline and review it\n[Action taken]: Verify assumptions by checking existing data\n[Action taken]: Verify assumptions by checking existing data\n[Action taken]: Run a quick prototype to test the hypothesis\n[Action taken]: Identify potential blockers and mitigate them"
+    },
+    {
+      "type": "new_node",
+      "node_id": "n16",
+      "parent_id": "n13",
+      "action": "Run a quick prototype to test the hypothesis",
+      "prior": 0.4465,
+      "state": "We are starting from scratch. No code exists yet. The API must support: POST /tasks (create), GET /tasks (list all), PATCH /tasks/{id} (update), DELETE /tasks/{id} (delete). Storage is in-memory (a Python dict). No auth required.\n[Action taken]: Draft an initial outline and review it\n[Action taken]: Verify assumptions by checking existing data\n[Action taken]: Verify assumptions by checking existing data\n[Action taken]: Run a quick prototype to test the hypothesis\n[Action taken]: Run a quick prototype to test the hypothesis"
+    },
+    {
+      "type": "backprop_start",
+      "path": [
+        "n0",
+        "n1",
+        "n4",
+        "n9",
+        "n13"
+      ],
+      "value": 5.5896
+    },
+    {
+      "type": "node_update",
+      "node_id": "n13",
+      "visits": 1,
+      "value_sum": 5.5896
+    },
+    {
+      "type": "node_update",
+      "node_id": "n9",
+      "visits": 2,
+      "value_sum": 14.9525
+    },
+    {
+      "type": "node_update",
+      "node_id": "n4",
+      "visits": 3,
+      "value_sum": 18.7552
+    },
+    {
+      "type": "node_update",
+      "node_id": "n1",
+      "visits": 6,
+      "value_sum": 26.8701
+    },
+    {
+      "type": "node_update",
+      "node_id": "n0",
+      "visits": 7,
+      "value_sum": 35.8537
+    },
+    {
+      "type": "iteration_end",
+      "i": 7
+    },
+    {
+      "type": "iteration_start",
+      "i": 8
+    },
+    {
+      "type": "select",
+      "path": [
+        "n0",
+        "n1",
+        "n3",
+        "n10"
+      ]
+    },
+    {
+      "type": "eval",
+      "node_id": "n10"
+    },
+    {
+      "type": "score",
+      "node_id": "n10",
+      "value": 8.0618
+    },
+    {
+      "type": "candidates",
+      "candidates": [
+        "Identify potential blockers and mitigate them",
+        "Summarise findings and propose next step",
+        "Run a quick prototype to test the hypothesis"
+      ]
+    },
+    {
+      "type": "noul",
+      "action": "Identify potential blockers and mitigate them",
+      "valid": true,
+      "confidence": 0.9012
+    },
+    {
+      "type": "noul",
+      "action": "Summarise findings and propose next step",
+      "valid": false,
+      "confidence": 0.7079
+    },
+    {
+      "type": "noul",
+      "action": "Run a quick prototype to test the hypothesis",
+      "valid": false,
+      "confidence": 0.6177
+    },
+    {
+      "type": "new_node",
+      "node_id": "n17",
+      "parent_id": "n10",
+      "action": "Identify potential blockers and mitigate them",
+      "prior": 1.0,
+      "state": "We are starting from scratch. No code exists yet. The API must support: POST /tasks (create), GET /tasks (list all), PATCH /tasks/{id} (update), DELETE /tasks/{id} (delete). Storage is in-memory (a Python dict). No auth required.\n[Action taken]: Draft an initial outline and review it\n[Action taken]: Draft an initial outline and review it\n[Action taken]: Search for relevant documentation online\n[Action taken]: Identify potential blockers and mitigate them"
+    },
+    {
+      "type": "backprop_start",
+      "path": [
+        "n0",
+        "n1",
+        "n3",
+        "n10"
+      ],
+      "value": 8.0618
+    },
+    {
+      "type": "node_update",
+      "node_id": "n10",
+      "visits": 1,
+      "value_sum": 8.0618
+    },
+    {
+      "type": "node_update",
+      "node_id": "n3",
+      "visits": 2,
+      "value_sum": 13.3155
+    },
+    {
+      "type": "node_update",
+      "node_id": "n1",
+      "visits": 7,
+      "value_sum": 34.9319
+    },
+    {
+      "type": "node_update",
+      "node_id": "n0",
+      "visits": 8,
+      "value_sum": 43.9154
+    },
+    {
+      "type": "iteration_end",
+      "i": 8
+    },
+    {
+      "type": "iteration_start",
+      "i": 9
+    },
+    {
+      "type": "select",
+      "path": [
+        "n0",
+        "n1",
+        "n3",
+        "n11"
+      ]
+    },
+    {
+      "type": "eval",
+      "node_id": "n11"
+    },
+    {
+      "type": "score",
+      "node_id": "n11",
+      "value": 7.5514
+    },
+    {
+      "type": "candidates",
+      "candidates": [
+        "Consult domain-specific knowledge base",
+        "Identify potential blockers and mitigate them",
+        "Decompose the problem into smaller sub-tasks"
+      ]
+    },
+    {
+      "type": "noul",
+      "action": "Consult domain-specific knowledge base",
+      "valid": false,
+      "confidence": 0.5459
+    },
+    {
+      "type": "noul",
+      "action": "Identify potential blockers and mitigate them",
+      "valid": false,
+      "confidence": 0.7682
+    },
+    {
+      "type": "noul",
+      "action": "Decompose the problem into smaller sub-tasks",
+      "valid": false,
+      "confidence": 0.7879
+    },
+    {
+      "type": "new_node",
+      "node_id": "n18",
+      "parent_id": "n11",
+      "action": "Consult domain-specific knowledge base",
+      "prior": 0.1814,
+      "state": "We are starting from scratch. No code exists yet. The API must support: POST /tasks (create), GET /tasks (list all), PATCH /tasks/{id} (update), DELETE /tasks/{id} (delete). Storage is in-memory (a Python dict). No auth required.\n[Action taken]: Draft an initial outline and review it\n[Action taken]: Draft an initial outline and review it\n[Action taken]: Run a quick prototype to test the hypothesis\n[Action taken]: Consult domain-specific knowledge base"
+    },
+    {
+      "type": "new_node",
+      "node_id": "n19",
+      "parent_id": "n11",
+      "action": "Identify potential blockers and mitigate them",
+      "prior": 0.5207,
+      "state": "We are starting from scratch. No code exists yet. The API must support: POST /tasks (create), GET /tasks (list all), PATCH /tasks/{id} (update), DELETE /tasks/{id} (delete). Storage is in-memory (a Python dict). No auth required.\n[Action taken]: Draft an initial outline and review it\n[Action taken]: Draft an initial outline and review it\n[Action taken]: Run a quick prototype to test the hypothesis\n[Action taken]: Identify potential blockers and mitigate them"
+    },
+    {
+      "type": "new_node",
+      "node_id": "n20",
+      "parent_id": "n11",
+      "action": "Decompose the problem into smaller sub-tasks",
+      "prior": 0.2979,
+      "state": "We are starting from scratch. No code exists yet. The API must support: POST /tasks (create), GET /tasks (list all), PATCH /tasks/{id} (update), DELETE /tasks/{id} (delete). Storage is in-memory (a Python dict). No auth required.\n[Action taken]: Draft an initial outline and review it\n[Action taken]: Draft an initial outline and review it\n[Action taken]: Run a quick prototype to test the hypothesis\n[Action taken]: Decompose the problem into smaller sub-tasks"
+    },
+    {
+      "type": "backprop_start",
+      "path": [
+        "n0",
+        "n1",
+        "n3",
+        "n11"
+      ],
+      "value": 7.5514
+    },
+    {
+      "type": "node_update",
+      "node_id": "n11",
+      "visits": 1,
+      "value_sum": 7.5514
+    },
+    {
+      "type": "node_update",
+      "node_id": "n3",
+      "visits": 3,
+      "value_sum": 20.8669
+    },
+    {
+      "type": "node_update",
+      "node_id": "n1",
+      "visits": 8,
+      "value_sum": 42.4833
+    },
+    {
+      "type": "node_update",
+      "node_id": "n0",
+      "visits": 9,
+      "value_sum": 51.4668
+    },
+    {
+      "type": "iteration_end",
+      "i": 9
+    },
+    {
+      "type": "iteration_start",
+      "i": 10
+    },
+    {
+      "type": "select",
+      "path": [
+        "n0",
+        "n1",
+        "n4",
+        "n8"
+      ]
+    },
+    {
+      "type": "eval",
+      "node_id": "n8"
+    },
+    {
+      "type": "score",
+      "node_id": "n8",
+      "value": 3.5871
+    },
+    {
+      "type": "candidates",
+      "candidates": [
+        "Consult domain-specific knowledge base",
+        "Search for relevant documentation online",
+        "Verify assumptions by checking existing data"
+      ]
+    },
+    {
+      "type": "noul",
+      "action": "Consult domain-specific knowledge base",
+      "valid": false,
+      "confidence": 0.6557
+    },
+    {
+      "type": "noul",
+      "action": "Search for relevant documentation online",
+      "valid": true,
+      "confidence": 0.9737
+    },
+    {
+      "type": "noul",
+      "action": "Verify assumptions by checking existing data",
+      "valid": false,
+      "confidence": 0.5073
+    },
+    {
+      "type": "new_node",
+      "node_id": "n21",
+      "parent_id": "n8",
+      "action": "Search for relevant documentation online",
+      "prior": 1.0,
+      "state": "We are starting from scratch. No code exists yet. The API must support: POST /tasks (create), GET /tasks (list all), PATCH /tasks/{id} (update), DELETE /tasks/{id} (delete). Storage is in-memory (a Python dict). No auth required.\n[Action taken]: Draft an initial outline and review it\n[Action taken]: Verify assumptions by checking existing data\n[Action taken]: Decompose the problem into smaller sub-tasks\n[Action taken]: Search for relevant documentation online"
+    },
+    {
+      "type": "backprop_start",
+      "path": [
+        "n0",
+        "n1",
+        "n4",
+        "n8"
+      ],
+      "value": 3.5871
+    },
+    {
+      "type": "node_update",
+      "node_id": "n8",
+      "visits": 1,
+      "value_sum": 3.5871
+    },
+    {
+      "type": "node_update",
+      "node_id": "n4",
+      "visits": 4,
+      "value_sum": 22.3423
+    },
+    {
+      "type": "node_update",
+      "node_id": "n1",
+      "visits": 9,
+      "value_sum": 46.0703
+    },
+    {
+      "type": "node_update",
+      "node_id": "n0",
+      "visits": 10,
+      "value_sum": 55.0538
+    },
+    {
+      "type": "iteration_end",
+      "i": 10
+    },
+    {
+      "type": "complete",
+      "best_action": "Draft an initial outline and review it",
+      "best_node_id": "n1"
+    }
+  ]
+}

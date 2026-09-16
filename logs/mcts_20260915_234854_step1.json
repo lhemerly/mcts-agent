@@ -1,0 +1,586 @@
+{
+  "meta": {
+    "goal": "Deeply research use cases for this AI ev is TypeSafe’s flagship model and the first System One model. Send state and typed questions; get structured answers your code can use directly.\nLarge language models (LLMs) are designed to produce text for humans to read. When you need a model to make a judgment that your code will consume, that creates a mismatch: you are coercing a text-generation system into outputting structured decisions, then parsing the results back into something your code can depend on.Jev is TypeSafe’s flagship model and the first [System One model](https://docs.typesafe.ai/concepts/system-one). System One models are built to make fast, structured decisions that software can use directly. Jev evaluates typed questions against a state and returns structured results directly. No text generation, no parsing. You get typed values and probability distributions that your code can branch on, sort by, and route with.[](https://docs.typesafe.ai/introduction#typesafe-primitives)\nTypeSafe primitives\nTypeSafe exposes three AI primitives. Similar to software primitives, our AI primitives are modular, composable, structured, reliable, and fast. Each asks a different type of question and returns a different type of answer.Question type\nGoal\nReturns\n[Choice](https://docs.typesafe.ai/primitives/choice)\nChoose an option from a list\nchoice, probabilities, confidence\n[Score](https://docs.typesafe.ai/primitives/score)\nScore the state on a rubric\nscore, probabilities, confidence\n[Noul](https://docs.typesafe.ai/primitives/noul)\nIs this statement true?\nnoul (0–1)\nAll three question types can be mixed in a single API call. Every question is evaluated in parallel and in isolation against the same state in one go. Adding questions barely changes the response time. Each question is evaluated independently, so adding more questions does not create context-rot.[](https://docs.typesafe.ai/introduction#atomic-questions-composed-in-code)\nAtomic questions, composed in code\nSystem One models work best when each question asks one specific, well-scoped thing. Think of each question as a gut-check determination: the kind of judgment a highly knowledgeable person could make in a few seconds given the right context.If the question you want to ask would require extended reasoning or weighs multiple independent factors, decompose it. Ask each factor as a separate question, then combine the results with logic in your code. This keeps each individual evaluation reliable and gives you full control over how dimensions are weighted.For example, instead of “rate this startup pitch,” ask separately about market size, technical feasibility, and differentiation. Combine the scores with your own formula. When priorities shift, change a coefficient in your code rather than rewriting a prompt.\n\nThe final report must contain at least 7 breakthrough use cases",
+    "initial_state": "Starting state: No research report has been drafted yet.\nTypeSafe Jev documentation and Python SDK references are available locally in apiReference.md and pythonSDK.md.\nNeed to deeply explore System One primitives (Choice, Score, Noul), analyze unique advantages (fast, no text generation, parallel atomic evaluations, zero context rot, code-composed logic), and author a comprehensive final report containing at least 7 breakthrough use cases.",
+    "iterations": 5,
+    "step": 1,
+    "run_id": "20260915_234854",
+    "timestamp": "2026-09-16T02:48:54.722562+00:00"
+  },
+  "events": [
+    {
+      "type": "init",
+      "node_id": "n0",
+      "state": "Starting state: No research report has been drafted yet.\nTypeSafe Jev documentation and Python SDK references are available locally in apiReference.md and pythonSDK.md.\nNeed to deeply explore System One primitives (Choice, Score, Noul), analyze unique advantages (fast, no text generation, parallel atomic evaluations, zero context rot, code-composed logic), and author a comprehensive final report containing at least 7 breakthrough use cases."
+    },
+    {
+      "type": "iteration_start",
+      "i": 1
+    },
+    {
+      "type": "select",
+      "path": [
+        "n0"
+      ]
+    },
+    {
+      "type": "eval",
+      "node_id": "n0"
+    },
+    {
+      "type": "score",
+      "node_id": "n0",
+      "value": 2.13
+    },
+    {
+      "type": "candidates",
+      "candidates": [
+        "Inspect `apiReference.md` and `pythonSDK.md` to document the exact schemas, latency profiles, and composition patterns of Choice, Score, and Noul primitives.",
+        "Identify architectural domains where low-latency, zero-parsing, probability-backed atomic evaluations eliminate traditional generative LLM bottlenecks.",
+        "Brainstorm candidate use cases across high-throughput domains that leverage parallel atomic evaluations composed with deterministic code logic.",
+        "Select and specify at least 7 breakthrough use cases, defining the state payload, typed questions, scoring formulas, and business impact for each.",
+        "Author and finalize the comprehensive research report synthesizing TypeSafe Jev's core advantages and the 7+ detailed breakthrough use case blueprints."
+      ]
+    },
+    {
+      "type": "noul",
+      "action": "Inspect `apiReference.md` and `pythonSDK.md` to document the exact schemas, latency profiles, and composition patterns of Choice, Score, and Noul primitives.",
+      "valid": true,
+      "confidence": 0.96
+    },
+    {
+      "type": "noul",
+      "action": "Identify architectural domains where low-latency, zero-parsing, probability-backed atomic evaluations eliminate traditional generative LLM bottlenecks.",
+      "valid": true,
+      "confidence": 0.95
+    },
+    {
+      "type": "noul",
+      "action": "Brainstorm candidate use cases across high-throughput domains that leverage parallel atomic evaluations composed with deterministic code logic.",
+      "valid": true,
+      "confidence": 0.95
+    },
+    {
+      "type": "noul",
+      "action": "Select and specify at least 7 breakthrough use cases, defining the state payload, typed questions, scoring formulas, and business impact for each.",
+      "valid": false,
+      "confidence": 0.72
+    },
+    {
+      "type": "noul",
+      "action": "Author and finalize the comprehensive research report synthesizing TypeSafe Jev's core advantages and the 7+ detailed breakthrough use case blueprints.",
+      "valid": false,
+      "confidence": 0.39
+    },
+    {
+      "type": "new_node",
+      "node_id": "n1",
+      "parent_id": "n0",
+      "action": "Inspect `apiReference.md` and `pythonSDK.md` to document the exact schemas, latency profiles, and composition patterns of Choice, Score, and Noul primitives.",
+      "prior": 0.97,
+      "state": "Starting state: No research report has been drafted yet.\nTypeSafe Jev documentation and Python SDK references are available locally in apiReference.md and pythonSDK.md.\nNeed to deeply explore System One primitives (Choice, Score, Noul), analyze unique advantages (fast, no text generation, parallel atomic evaluations, zero context rot, code-composed logic), and author a comprehensive final report containing at least 7 breakthrough use cases.\n[Action taken]: Inspect `apiReference.md` and `pythonSDK.md` to document the exact schemas, latency profiles, and composition patterns of Choice, Score, and Noul primitives."
+    },
+    {
+      "type": "new_node",
+      "node_id": "n2",
+      "parent_id": "n0",
+      "action": "Identify architectural domains where low-latency, zero-parsing, probability-backed atomic evaluations eliminate traditional generative LLM bottlenecks.",
+      "prior": 0.02,
+      "state": "Starting state: No research report has been drafted yet.\nTypeSafe Jev documentation and Python SDK references are available locally in apiReference.md and pythonSDK.md.\nNeed to deeply explore System One primitives (Choice, Score, Noul), analyze unique advantages (fast, no text generation, parallel atomic evaluations, zero context rot, code-composed logic), and author a comprehensive final report containing at least 7 breakthrough use cases.\n[Action taken]: Identify architectural domains where low-latency, zero-parsing, probability-backed atomic evaluations eliminate traditional generative LLM bottlenecks."
+    },
+    {
+      "type": "new_node",
+      "node_id": "n3",
+      "parent_id": "n0",
+      "action": "Brainstorm candidate use cases across high-throughput domains that leverage parallel atomic evaluations composed with deterministic code logic.",
+      "prior": 0.01,
+      "state": "Starting state: No research report has been drafted yet.\nTypeSafe Jev documentation and Python SDK references are available locally in apiReference.md and pythonSDK.md.\nNeed to deeply explore System One primitives (Choice, Score, Noul), analyze unique advantages (fast, no text generation, parallel atomic evaluations, zero context rot, code-composed logic), and author a comprehensive final report containing at least 7 breakthrough use cases.\n[Action taken]: Brainstorm candidate use cases across high-throughput domains that leverage parallel atomic evaluations composed with deterministic code logic."
+    },
+    {
+      "type": "backprop_start",
+      "path": [
+        "n0"
+      ],
+      "value": 2.13
+    },
+    {
+      "type": "node_update",
+      "node_id": "n0",
+      "visits": 1,
+      "value_sum": 2.13
+    },
+    {
+      "type": "iteration_end",
+      "i": 1
+    },
+    {
+      "type": "iteration_start",
+      "i": 2
+    },
+    {
+      "type": "select",
+      "path": [
+        "n0",
+        "n1"
+      ]
+    },
+    {
+      "type": "eval",
+      "node_id": "n1"
+    },
+    {
+      "type": "score",
+      "node_id": "n1",
+      "value": 3.05
+    },
+    {
+      "type": "candidates",
+      "candidates": [
+        "Identify application domains where traditional LLM generation latency, non-deterministic parsing, or context rot cause critical failure modes.",
+        "Brainstorm and define candidate breakthrough use cases that leverage parallel evaluation of Choice, Score, and Noul primitives.",
+        "Select at least 7 high-impact use cases and specify their exact state schemas, atomic question sets, and programmatic composition logic.",
+        "Benchmark each selected use case against traditional generative LLM pipelines on latency, reliability, cost, and determinism.",
+        "Author the comprehensive research report detailing architectural advantages, SDK integration patterns, and the 7+ breakthrough use cases."
+      ]
+    },
+    {
+      "type": "noul",
+      "action": "Identify application domains where traditional LLM generation latency, non-deterministic parsing, or context rot cause critical failure modes.",
+      "valid": true,
+      "confidence": 0.93
+    },
+    {
+      "type": "noul",
+      "action": "Brainstorm and define candidate breakthrough use cases that leverage parallel evaluation of Choice, Score, and Noul primitives.",
+      "valid": true,
+      "confidence": 0.89
+    },
+    {
+      "type": "noul",
+      "action": "Select at least 7 high-impact use cases and specify their exact state schemas, atomic question sets, and programmatic composition logic.",
+      "valid": false,
+      "confidence": 0.78
+    },
+    {
+      "type": "noul",
+      "action": "Benchmark each selected use case against traditional generative LLM pipelines on latency, reliability, cost, and determinism.",
+      "valid": false,
+      "confidence": 0.63
+    },
+    {
+      "type": "noul",
+      "action": "Author the comprehensive research report detailing architectural advantages, SDK integration patterns, and the 7+ breakthrough use cases.",
+      "valid": false,
+      "confidence": 0.55
+    },
+    {
+      "type": "new_node",
+      "node_id": "n4",
+      "parent_id": "n1",
+      "action": "Identify application domains where traditional LLM generation latency, non-deterministic parsing, or context rot cause critical failure modes.",
+      "prior": 0.3,
+      "state": "Starting state: No research report has been drafted yet.\nTypeSafe Jev documentation and Python SDK references are available locally in apiReference.md and pythonSDK.md.\nNeed to deeply explore System One primitives (Choice, Score, Noul), analyze unique advantages (fast, no text generation, parallel atomic evaluations, zero context rot, code-composed logic), and author a comprehensive final report containing at least 7 breakthrough use cases.\n[Action taken]: Inspect `apiReference.md` and `pythonSDK.md` to document the exact schemas, latency profiles, and composition patterns of Choice, Score, and Noul primitives.\n[Action taken]: Identify application domains where traditional LLM generation latency, non-deterministic parsing, or context rot cause critical failure modes."
+    },
+    {
+      "type": "new_node",
+      "node_id": "n5",
+      "parent_id": "n1",
+      "action": "Brainstorm and define candidate breakthrough use cases that leverage parallel evaluation of Choice, Score, and Noul primitives.",
+      "prior": 0.7,
+      "state": "Starting state: No research report has been drafted yet.\nTypeSafe Jev documentation and Python SDK references are available locally in apiReference.md and pythonSDK.md.\nNeed to deeply explore System One primitives (Choice, Score, Noul), analyze unique advantages (fast, no text generation, parallel atomic evaluations, zero context rot, code-composed logic), and author a comprehensive final report containing at least 7 breakthrough use cases.\n[Action taken]: Inspect `apiReference.md` and `pythonSDK.md` to document the exact schemas, latency profiles, and composition patterns of Choice, Score, and Noul primitives.\n[Action taken]: Brainstorm and define candidate breakthrough use cases that leverage parallel evaluation of Choice, Score, and Noul primitives."
+    },
+    {
+      "type": "backprop_start",
+      "path": [
+        "n0",
+        "n1"
+      ],
+      "value": 3.05
+    },
+    {
+      "type": "node_update",
+      "node_id": "n1",
+      "visits": 1,
+      "value_sum": 3.05
+    },
+    {
+      "type": "node_update",
+      "node_id": "n0",
+      "visits": 2,
+      "value_sum": 5.18
+    },
+    {
+      "type": "iteration_end",
+      "i": 2
+    },
+    {
+      "type": "iteration_start",
+      "i": 3
+    },
+    {
+      "type": "select",
+      "path": [
+        "n0",
+        "n1",
+        "n5"
+      ]
+    },
+    {
+      "type": "eval",
+      "node_id": "n5"
+    },
+    {
+      "type": "score",
+      "node_id": "n5",
+      "value": 3.61
+    },
+    {
+      "type": "candidates",
+      "candidates": [
+        "Select and prioritize the top 7+ breakthrough use cases uniquely enabled by System One decision primitives.",
+        "Specify the atomic question decomposition schemas across Choice, Score, and Noul for each selected use case.",
+        "Write representative Python SDK implementation examples demonstrating parallel dispatch and programmatic decision branching.",
+        "Draft the comprehensive research report detailing the technical architectures, latency advantages, and business impact of all 7+ use cases.",
+        "Review and refine the draft to ensure rigorous comparison against traditional LLMs, highlighting zero context rot and calibrated confidence scores."
+      ]
+    },
+    {
+      "type": "noul",
+      "action": "Select and prioritize the top 7+ breakthrough use cases uniquely enabled by System One decision primitives.",
+      "valid": true,
+      "confidence": 0.93
+    },
+    {
+      "type": "noul",
+      "action": "Specify the atomic question decomposition schemas across Choice, Score, and Noul for each selected use case.",
+      "valid": true,
+      "confidence": 0.9
+    },
+    {
+      "type": "noul",
+      "action": "Write representative Python SDK implementation examples demonstrating parallel dispatch and programmatic decision branching.",
+      "valid": true,
+      "confidence": 0.93
+    },
+    {
+      "type": "noul",
+      "action": "Draft the comprehensive research report detailing the technical architectures, latency advantages, and business impact of all 7+ use cases.",
+      "valid": false,
+      "confidence": 0.64
+    },
+    {
+      "type": "noul",
+      "action": "Review and refine the draft to ensure rigorous comparison against traditional LLMs, highlighting zero context rot and calibrated confidence scores.",
+      "valid": false,
+      "confidence": 0.22
+    },
+    {
+      "type": "new_node",
+      "node_id": "n6",
+      "parent_id": "n5",
+      "action": "Select and prioritize the top 7+ breakthrough use cases uniquely enabled by System One decision primitives.",
+      "prior": 0.82,
+      "state": "Starting state: No research report has been drafted yet.\nTypeSafe Jev documentation and Python SDK references are available locally in apiReference.md and pythonSDK.md.\nNeed to deeply explore System One primitives (Choice, Score, Noul), analyze unique advantages (fast, no text generation, parallel atomic evaluations, zero context rot, code-composed logic), and author a comprehensive final report containing at least 7 breakthrough use cases.\n[Action taken]: Inspect `apiReference.md` and `pythonSDK.md` to document the exact schemas, latency profiles, and composition patterns of Choice, Score, and Noul primitives.\n[Action taken]: Brainstorm and define candidate breakthrough use cases that leverage parallel evaluation of Choice, Score, and Noul primitives.\n[Action taken]: Select and prioritize the top 7+ breakthrough use cases uniquely enabled by System One decision primitives."
+    },
+    {
+      "type": "new_node",
+      "node_id": "n7",
+      "parent_id": "n5",
+      "action": "Specify the atomic question decomposition schemas across Choice, Score, and Noul for each selected use case.",
+      "prior": 0.11,
+      "state": "Starting state: No research report has been drafted yet.\nTypeSafe Jev documentation and Python SDK references are available locally in apiReference.md and pythonSDK.md.\nNeed to deeply explore System One primitives (Choice, Score, Noul), analyze unique advantages (fast, no text generation, parallel atomic evaluations, zero context rot, code-composed logic), and author a comprehensive final report containing at least 7 breakthrough use cases.\n[Action taken]: Inspect `apiReference.md` and `pythonSDK.md` to document the exact schemas, latency profiles, and composition patterns of Choice, Score, and Noul primitives.\n[Action taken]: Brainstorm and define candidate breakthrough use cases that leverage parallel evaluation of Choice, Score, and Noul primitives.\n[Action taken]: Specify the atomic question decomposition schemas across Choice, Score, and Noul for each selected use case."
+    },
+    {
+      "type": "new_node",
+      "node_id": "n8",
+      "parent_id": "n5",
+      "action": "Write representative Python SDK implementation examples demonstrating parallel dispatch and programmatic decision branching.",
+      "prior": 0.07,
+      "state": "Starting state: No research report has been drafted yet.\nTypeSafe Jev documentation and Python SDK references are available locally in apiReference.md and pythonSDK.md.\nNeed to deeply explore System One primitives (Choice, Score, Noul), analyze unique advantages (fast, no text generation, parallel atomic evaluations, zero context rot, code-composed logic), and author a comprehensive final report containing at least 7 breakthrough use cases.\n[Action taken]: Inspect `apiReference.md` and `pythonSDK.md` to document the exact schemas, latency profiles, and composition patterns of Choice, Score, and Noul primitives.\n[Action taken]: Brainstorm and define candidate breakthrough use cases that leverage parallel evaluation of Choice, Score, and Noul primitives.\n[Action taken]: Write representative Python SDK implementation examples demonstrating parallel dispatch and programmatic decision branching."
+    },
+    {
+      "type": "backprop_start",
+      "path": [
+        "n0",
+        "n1",
+        "n5"
+      ],
+      "value": 3.61
+    },
+    {
+      "type": "node_update",
+      "node_id": "n5",
+      "visits": 1,
+      "value_sum": 3.61
+    },
+    {
+      "type": "node_update",
+      "node_id": "n1",
+      "visits": 2,
+      "value_sum": 6.66
+    },
+    {
+      "type": "node_update",
+      "node_id": "n0",
+      "visits": 3,
+      "value_sum": 8.79
+    },
+    {
+      "type": "iteration_end",
+      "i": 3
+    },
+    {
+      "type": "iteration_start",
+      "i": 4
+    },
+    {
+      "type": "select",
+      "path": [
+        "n0",
+        "n1",
+        "n5",
+        "n6"
+      ]
+    },
+    {
+      "type": "eval",
+      "node_id": "n6"
+    },
+    {
+      "type": "score",
+      "node_id": "n6",
+      "value": 5.35
+    },
+    {
+      "type": "candidates",
+      "candidates": [
+        "Design primitive decomposition workflows combining Choice, Score, and Noul questions for each of the 7+ selected use cases.",
+        "Develop Python SDK code examples demonstrating parallel question evaluation and programmatic decision routing for the use cases.",
+        "Analyze comparative benchmarks highlighting latency, cost, and reliability advantages over traditional generative LLMs.",
+        "Author the comprehensive research report detailing the technical architectures and implementation blueprints for all 7+ breakthrough use cases.",
+        "Review and polish the research report to ensure complete coverage, technical accuracy, and alignment with the TypeSafe Jev API references."
+      ]
+    },
+    {
+      "type": "noul",
+      "action": "Design primitive decomposition workflows combining Choice, Score, and Noul questions for each of the 7+ selected use cases.",
+      "valid": true,
+      "confidence": 0.92
+    },
+    {
+      "type": "noul",
+      "action": "Develop Python SDK code examples demonstrating parallel question evaluation and programmatic decision routing for the use cases.",
+      "valid": true,
+      "confidence": 0.84
+    },
+    {
+      "type": "noul",
+      "action": "Analyze comparative benchmarks highlighting latency, cost, and reliability advantages over traditional generative LLMs.",
+      "valid": true,
+      "confidence": 0.83
+    },
+    {
+      "type": "noul",
+      "action": "Author the comprehensive research report detailing the technical architectures and implementation blueprints for all 7+ breakthrough use cases.",
+      "valid": true,
+      "confidence": 0.92
+    },
+    {
+      "type": "noul",
+      "action": "Review and polish the research report to ensure complete coverage, technical accuracy, and alignment with the TypeSafe Jev API references.",
+      "valid": false,
+      "confidence": 0.43
+    },
+    {
+      "type": "new_node",
+      "node_id": "n9",
+      "parent_id": "n6",
+      "action": "Design primitive decomposition workflows combining Choice, Score, and Noul questions for each of the 7+ selected use cases.",
+      "prior": 0.39,
+      "state": "Starting state: No research report has been drafted yet.\nTypeSafe Jev documentation and Python SDK references are available locally in apiReference.md and pythonSDK.md.\nNeed to deeply explore System One primitives (Choice, Score, Noul), analyze unique advantages (fast, no text generation, parallel atomic evaluations, zero context rot, code-composed logic), and author a comprehensive final report containing at least 7 breakthrough use cases.\n[Action taken]: Inspect `apiReference.md` and `pythonSDK.md` to document the exact schemas, latency profiles, and composition patterns of Choice, Score, and Noul primitives.\n[Action taken]: Brainstorm and define candidate breakthrough use cases that leverage parallel evaluation of Choice, Score, and Noul primitives.\n[Action taken]: Select and prioritize the top 7+ breakthrough use cases uniquely enabled by System One decision primitives.\n[Action taken]: Design primitive decomposition workflows combining Choice, Score, and Noul questions for each of the 7+ selected use cases."
+    },
+    {
+      "type": "new_node",
+      "node_id": "n10",
+      "parent_id": "n6",
+      "action": "Develop Python SDK code examples demonstrating parallel question evaluation and programmatic decision routing for the use cases.",
+      "prior": 0.01,
+      "state": "Starting state: No research report has been drafted yet.\nTypeSafe Jev documentation and Python SDK references are available locally in apiReference.md and pythonSDK.md.\nNeed to deeply explore System One primitives (Choice, Score, Noul), analyze unique advantages (fast, no text generation, parallel atomic evaluations, zero context rot, code-composed logic), and author a comprehensive final report containing at least 7 breakthrough use cases.\n[Action taken]: Inspect `apiReference.md` and `pythonSDK.md` to document the exact schemas, latency profiles, and composition patterns of Choice, Score, and Noul primitives.\n[Action taken]: Brainstorm and define candidate breakthrough use cases that leverage parallel evaluation of Choice, Score, and Noul primitives.\n[Action taken]: Select and prioritize the top 7+ breakthrough use cases uniquely enabled by System One decision primitives.\n[Action taken]: Develop Python SDK code examples demonstrating parallel question evaluation and programmatic decision routing for the use cases."
+    },
+    {
+      "type": "new_node",
+      "node_id": "n11",
+      "parent_id": "n6",
+      "action": "Analyze comparative benchmarks highlighting latency, cost, and reliability advantages over traditional generative LLMs.",
+      "prior": 0.0,
+      "state": "Starting state: No research report has been drafted yet.\nTypeSafe Jev documentation and Python SDK references are available locally in apiReference.md and pythonSDK.md.\nNeed to deeply explore System One primitives (Choice, Score, Noul), analyze unique advantages (fast, no text generation, parallel atomic evaluations, zero context rot, code-composed logic), and author a comprehensive final report containing at least 7 breakthrough use cases.\n[Action taken]: Inspect `apiReference.md` and `pythonSDK.md` to document the exact schemas, latency profiles, and composition patterns of Choice, Score, and Noul primitives.\n[Action taken]: Brainstorm and define candidate breakthrough use cases that leverage parallel evaluation of Choice, Score, and Noul primitives.\n[Action taken]: Select and prioritize the top 7+ breakthrough use cases uniquely enabled by System One decision primitives.\n[Action taken]: Analyze comparative benchmarks highlighting latency, cost, and reliability advantages over traditional generative LLMs."
+    },
+    {
+      "type": "new_node",
+      "node_id": "n12",
+      "parent_id": "n6",
+      "action": "Author the comprehensive research report detailing the technical architectures and implementation blueprints for all 7+ breakthrough use cases.",
+      "prior": 0.6,
+      "state": "Starting state: No research report has been drafted yet.\nTypeSafe Jev documentation and Python SDK references are available locally in apiReference.md and pythonSDK.md.\nNeed to deeply explore System One primitives (Choice, Score, Noul), analyze unique advantages (fast, no text generation, parallel atomic evaluations, zero context rot, code-composed logic), and author a comprehensive final report containing at least 7 breakthrough use cases.\n[Action taken]: Inspect `apiReference.md` and `pythonSDK.md` to document the exact schemas, latency profiles, and composition patterns of Choice, Score, and Noul primitives.\n[Action taken]: Brainstorm and define candidate breakthrough use cases that leverage parallel evaluation of Choice, Score, and Noul primitives.\n[Action taken]: Select and prioritize the top 7+ breakthrough use cases uniquely enabled by System One decision primitives.\n[Action taken]: Author the comprehensive research report detailing the technical architectures and implementation blueprints for all 7+ breakthrough use cases."
+    },
+    {
+      "type": "backprop_start",
+      "path": [
+        "n0",
+        "n1",
+        "n5",
+        "n6"
+      ],
+      "value": 5.35
+    },
+    {
+      "type": "node_update",
+      "node_id": "n6",
+      "visits": 1,
+      "value_sum": 5.35
+    },
+    {
+      "type": "node_update",
+      "node_id": "n5",
+      "visits": 2,
+      "value_sum": 8.96
+    },
+    {
+      "type": "node_update",
+      "node_id": "n1",
+      "visits": 3,
+      "value_sum": 12.01
+    },
+    {
+      "type": "node_update",
+      "node_id": "n0",
+      "visits": 4,
+      "value_sum": 14.14
+    },
+    {
+      "type": "iteration_end",
+      "i": 4
+    },
+    {
+      "type": "iteration_start",
+      "i": 5
+    },
+    {
+      "type": "select",
+      "path": [
+        "n0",
+        "n1",
+        "n4"
+      ]
+    },
+    {
+      "type": "eval",
+      "node_id": "n4"
+    },
+    {
+      "type": "score",
+      "node_id": "n4",
+      "value": 3.34
+    },
+    {
+      "type": "candidates",
+      "candidates": [
+        "Brainstorm candidate high-throughput domains where sub-second latency and zero-parsing execution resolve traditional LLM bottlenecks.",
+        "Formulate 7 breakthrough use case blueprints specifying state schemas, atomic primitive decompositions (Choice, Score, Noul), and code-side composition formulas.",
+        "Develop a comparative evaluation matrix contrasting TypeSafe Jev against generative LLM structured outputs across latency, reliability, and context-rot resilience.",
+        "Draft the comprehensive research report detailing the System One architectural paradigm and all 7 concrete use case architectures.",
+        "Review and polish the research report to ensure technical accuracy with the SDK specifications and full coverage of all target criteria."
+      ]
+    },
+    {
+      "type": "noul",
+      "action": "Brainstorm candidate high-throughput domains where sub-second latency and zero-parsing execution resolve traditional LLM bottlenecks.",
+      "valid": true,
+      "confidence": 0.94
+    },
+    {
+      "type": "noul",
+      "action": "Formulate 7 breakthrough use case blueprints specifying state schemas, atomic primitive decompositions (Choice, Score, Noul), and code-side composition formulas.",
+      "valid": true,
+      "confidence": 0.9
+    },
+    {
+      "type": "noul",
+      "action": "Develop a comparative evaluation matrix contrasting TypeSafe Jev against generative LLM structured outputs across latency, reliability, and context-rot resilience.",
+      "valid": true,
+      "confidence": 0.93
+    },
+    {
+      "type": "noul",
+      "action": "Draft the comprehensive research report detailing the System One architectural paradigm and all 7 concrete use case architectures.",
+      "valid": false,
+      "confidence": 0.63
+    },
+    {
+      "type": "noul",
+      "action": "Review and polish the research report to ensure technical accuracy with the SDK specifications and full coverage of all target criteria.",
+      "valid": false,
+      "confidence": 0.2
+    },
+    {
+      "type": "new_node",
+      "node_id": "n13",
+      "parent_id": "n4",
+      "action": "Brainstorm candidate high-throughput domains where sub-second latency and zero-parsing execution resolve traditional LLM bottlenecks.",
+      "prior": 0.09,
+      "state": "Starting state: No research report has been drafted yet.\nTypeSafe Jev documentation and Python SDK references are available locally in apiReference.md and pythonSDK.md.\nNeed to deeply explore System One primitives (Choice, Score, Noul), analyze unique advantages (fast, no text generation, parallel atomic evaluations, zero context rot, code-composed logic), and author a comprehensive final report containing at least 7 breakthrough use cases.\n[Action taken]: Inspect `apiReference.md` and `pythonSDK.md` to document the exact schemas, latency profiles, and composition patterns of Choice, Score, and Noul primitives.\n[Action taken]: Identify application domains where traditional LLM generation latency, non-deterministic parsing, or context rot cause critical failure modes.\n[Action taken]: Brainstorm candidate high-throughput domains where sub-second latency and zero-parsing execution resolve traditional LLM bottlenecks."
+    },
+    {
+      "type": "new_node",
+      "node_id": "n14",
+      "parent_id": "n4",
+      "action": "Formulate 7 breakthrough use case blueprints specifying state schemas, atomic primitive decompositions (Choice, Score, Noul), and code-side composition formulas.",
+      "prior": 0.86,
+      "state": "Starting state: No research report has been drafted yet.\nTypeSafe Jev documentation and Python SDK references are available locally in apiReference.md and pythonSDK.md.\nNeed to deeply explore System One primitives (Choice, Score, Noul), analyze unique advantages (fast, no text generation, parallel atomic evaluations, zero context rot, code-composed logic), and author a comprehensive final report containing at least 7 breakthrough use cases.\n[Action taken]: Inspect `apiReference.md` and `pythonSDK.md` to document the exact schemas, latency profiles, and composition patterns of Choice, Score, and Noul primitives.\n[Action taken]: Identify application domains where traditional LLM generation latency, non-deterministic parsing, or context rot cause critical failure modes.\n[Action taken]: Formulate 7 breakthrough use case blueprints specifying state schemas, atomic primitive decompositions (Choice, Score, Noul), and code-side composition formulas."
+    },
+    {
+      "type": "new_node",
+      "node_id": "n15",
+      "parent_id": "n4",
+      "action": "Develop a comparative evaluation matrix contrasting TypeSafe Jev against generative LLM structured outputs across latency, reliability, and context-rot resilience.",
+      "prior": 0.05,
+      "state": "Starting state: No research report has been drafted yet.\nTypeSafe Jev documentation and Python SDK references are available locally in apiReference.md and pythonSDK.md.\nNeed to deeply explore System One primitives (Choice, Score, Noul), analyze unique advantages (fast, no text generation, parallel atomic evaluations, zero context rot, code-composed logic), and author a comprehensive final report containing at least 7 breakthrough use cases.\n[Action taken]: Inspect `apiReference.md` and `pythonSDK.md` to document the exact schemas, latency profiles, and composition patterns of Choice, Score, and Noul primitives.\n[Action taken]: Identify application domains where traditional LLM generation latency, non-deterministic parsing, or context rot cause critical failure modes.\n[Action taken]: Develop a comparative evaluation matrix contrasting TypeSafe Jev against generative LLM structured outputs across latency, reliability, and context-rot resilience."
+    },
+    {
+      "type": "backprop_start",
+      "path": [
+        "n0",
+        "n1",
+        "n4"
+      ],
+      "value": 3.34
+    },
+    {
+      "type": "node_update",
+      "node_id": "n4",
+      "visits": 1,
+      "value_sum": 3.34
+    },
+    {
+      "type": "node_update",
+      "node_id": "n1",
+      "visits": 4,
+      "value_sum": 15.35
+    },
+    {
+      "type": "node_update",
+      "node_id": "n0",
+      "visits": 5,
+      "value_sum": 17.48
+    },
+    {
+      "type": "iteration_end",
+      "i": 5
+    },
+    {
+      "type": "complete",
+      "best_action": "Inspect `apiReference.md` and `pythonSDK.md` to document the exact schemas, latency profiles, and composition patterns of Choice, Score, and Noul primitives.",
+      "best_node_id": "n1"
+    }
+  ]
+}

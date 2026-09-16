@@ -1,0 +1,268 @@
+# Discriminative MCTS Agent
+
+[![CI](https://github.com/luizh/mcts-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/luizh/mcts-agent/actions/workflows/ci.yml)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![TypeSafe Jev Primitives](https://img.shields.io/badge/TypeSafe-Jev%20System%20One-purple.svg)](https://docs.typesafe.ai)
+
+An autonomous reasoning and execution agent powered by **Discriminative Monte Carlo Tree Search (MCTS)**. The system couples **TypeSafe Jev System One Primitives** (`Noul`, `Choice`, `Score`) for lightning-fast, structured discriminative evaluations with **Gemini 3.8 Flash** for action generation in a closed-loop execution environment.
+
+Includes an interactive **D3.js Tree Visualizer** to inspect and replay search rollouts, branch pruning, and value backpropagation frame-by-frame.
+
+---
+
+## Key Highlights
+
+- **Fast Discriminative Pruning & Scoring**: Traditional MCTS with LLMs suffers from sluggish text generation and unpredictable parsing. This agent uses TypeSafe Jev System One models to evaluate validity, calculate priors, and score states directly in code with zero token parsing.
+- **Single-Call Batched Pruning (`Noul`)**: Evaluates all candidate actions in parallel in a single `system_one()` call. No per-action network roundtrips, no context rot.
+- **Dynamic Prime Branching (`Choice`)**: Dynamically samples expansion widths from prime numbers ($2, 3, 5, 7, 11, 13$) based on state uncertainty and goal complexity.
+- **Closed-Loop Execution & Grounding**: Follows a strict cycle of *Plan & Choose $\rightarrow$ Execute $\rightarrow$ Review $\rightarrow$ Adapt $\rightarrow$ Assess*. Only the immediate winning action is executed; git diffs and terminal observations are folded back into context for subsequent decisions.
+- **Interactive D3 Visualizer**: Load generated JSON search logs directly in `visualizer.html` to replay search trees, inspect PUCT scores, view batched Noul gates, and analyze state trajectories.
+
+---
+
+## Architecture Overview
+
+```
+                          ┌──────────────────────────┐
+                          │   Goal & Initial State   │
+                          └────────────┬─────────────┘
+                                       │
+                ┌──────────────────────▼──────────────────────┐
+                │ 1. PLAN & CHOOSE (Discriminative MCTS)       │
+                │    ├── Selection: PUCT + First-Play Urgency │
+                │    ├── Expansion: Gemini proposes actions   │
+                │    ├── Prune: Batched Noul gate             │
+                │    ├── Priors: Choice policy distribution   │
+                │    ├── Value: Score rubric evaluation       │
+                │    └── Backpropagation: Value sum & visits  │
+                └──────────────────────┬──────────────────────┘
+                                       │ Best Immediate Action
+                ┌──────────────────────▼──────────────────────┐
+                │ 2. EXECUTE                                  │
+                │    Execute ONLY the selected immediate step │
+                │    in the designated workspace.             │
+                └──────────────────────┬──────────────────────┘
+                                       │ Returncode, stdout, stderr
+                ┌──────────────────────▼──────────────────────┐
+                │ 3. REVIEW                                   │
+                │    Inspect environment changes, git status, │
+                │    new files, and terminal outcomes.        │
+                └──────────────────────┬──────────────────────┘
+                                       │ Observation
+                ┌──────────────────────▼──────────────────────┐
+                │ 4. ADAPT                                    │
+                │    Ground real-world execution observation  │
+                │    into updated state description.          │
+                └──────────────────────┬──────────────────────┘
+                                       │ Grounded State
+                ┌──────────────────────▼──────────────────────┐
+                │ 5. ASSESS (Early Stopping)                  │
+                │    Noul evaluates: Is the goal complete?    │
+                │    - Yes (conf >= 0.85) -> Finish!          │
+                │    - No  (conf < 0.85)  -> Next MCTS step   │
+                └─────────────────────────────────────────────┘
+```
+
+---
+
+## TypeSafe Jev System One Primitives
+
+Large language models (LLMs) are System Two text-generators. When software needs fast, deterministic judgments, coercing an LLM into producing structured JSON and parsing strings introduces latency, format failures, and context rot.
+
+**TypeSafe Jev** is a **System One** model built for instant, structured judgments consumed directly in software:
+
+| Primitive | Role in MCTS | Mechanism & Benefit |
+| :--- | :--- | :--- |
+| **`Noul`** | **Batched Action Pruning** & **Early Stopping** | Evaluates boolean propositions ($0.0 - 1.0$). Evaluates *all* candidate actions in a single atomic API call without per-action roundtrips. Prunes invalid actions before tree insertion (threshold $\ge 0.8$). Also gates early task termination (threshold $\ge 0.85$). |
+| **`Choice`** | **Action Priors** & **Dynamic Branching** | Returns normalized probability distributions across discrete candidates. Assigns initial policy prior probabilities $P(s, a)$ used in the PUCT formula. Also selects optimal branching factor from primes ($2, 3, 5, 7, 11, 13$). |
+| **`Score`** | **State Value Heuristic** | Evaluates states on a continuous 1–10 rubric. Replaces costly, random Monte Carlo rollouts with a fast discriminative heuristic value estimate $V(s)$. |
+
+### PUCT Formula with First-Play Urgency (FPU)
+
+Nodes are selected during tree traversal using the predictor upper confidence bound applied to trees (PUCT):
+
+$$\text{PUCT}(s, a) = Q(s, a) + c_{\text{puct}} \cdot P(s, a) \cdot \frac{\sqrt{N(s)}}{1 + N(s, a)}$$
+
+- $Q(s, a)$ is normalized to $[0, 1]$ (divided by max score $10.0$) to maintain scale balance with the exploration term.
+- **First-Play Urgency (FPU)**: Unvisited child nodes inherit their parent's estimated value rather than defaulting to 0, preventing starvation of unvisited siblings when one child discovers a high score early.
+
+---
+
+## Visualizer Replay Guide
+
+The repository includes a standalone web visualizer [`visualizer.html`](visualizer.html) built with D3.js.
+
+### How to Run the Visualizer
+
+1. Open `visualizer.html` directly in any web browser:
+   ```bash
+   # Option A: Open directly in your browser
+   open visualizer.html   # macOS
+   xdg-open visualizer.html # Linux
+
+   # Option B: Run via a simple local HTTP server
+   python3 -m http.server 8000
+   # Then open http://localhost:8000/visualizer.html
+   ```
+
+2. **Load Search Logs**:
+   - Click the **"📂 Load JSON Log"** button in the top navigation bar.
+   - Select any run log from the `logs/` directory (e.g. `logs/mcts_20260915_235315_step1.json`).
+
+3. **Explore the Search Tree**:
+   - **Playback Controls**: Use Play ($\blacktriangleright$), Pause ($\mathbf{||}$), Step Forward ($\mathbf{>|}$), and Step Backward ($|\mathbf{<}$) to watch the tree expand iteration-by-iteration.
+   - **Timeline Scrubber**: Drag the slider across search iterations.
+   - **Node Details**: Click any node in the SVG canvas to view its accumulated visits, average score, prior probability, simulated state, and child branches in the right-hand inspection drawer.
+   - **Pruning Inspector**: Review candidate actions filtered or kept by the batched Noul gate with confidence scores.
+
+---
+
+## Quickstart
+
+### Prerequisites
+
+- Python $\ge$ 3.10
+- Git
+- *(Optional)* [TypeSafe API Key](https://typesafe.ai) for live discriminative evaluations
+- *(Optional)* Antigravity CLI (`agy`) or Gemini API key for live action expansion
+
+### Installation
+
+```bash
+# 1. Clone the repository
+git clone https://github.com/luizh/mcts-agent.git
+cd mcts-agent
+
+# 2. Set up a virtual environment
+python3 -m venv .venv
+source .venv/bin/activate
+
+# 3. Install dependencies
+pip install -r requirements.txt
+```
+
+### Environment Configuration
+
+Create a `.env` file in the project root:
+
+```ini
+TYPESAFE_API_KEY=your_typesafe_api_key_here
+# Optional model overrides:
+AGY_MODEL=gemini-3.8-flash-medium
+```
+
+---
+
+## Usage
+
+### 1. Mock Mode (Zero Keys Needed)
+
+Run the full closed-loop agent hermetically using built-in mock primitives:
+
+```bash
+python main.py --mock
+```
+
+### 2. Live Demo Run
+
+Run against the default demo goal (designing a minimal FastAPI application):
+
+```bash
+python main.py
+```
+
+### 3. Interactive Custom Goal
+
+Prompt the agent with your own goal and interactively approve or review execution steps:
+
+```bash
+python main.py --interactive
+```
+
+### 4. Pure MCTS Search (Deep Tree Exploration)
+
+Run pure discriminative MCTS to explore deep reasoning paths without workspace execution:
+
+```bash
+python run_pure_mcts.py 15
+```
+
+---
+
+## CLI Options
+
+`main.py` supports the following flags:
+
+| Flag | Short | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `--mock` | | `False` | Run with mock primitives (no API calls or keys required) |
+| `--interactive` | `-i` | `False` | Interactive mode with step confirmation prompts |
+| `--iterations` | `-n` | `10` | MCTS search iterations per reasoning step |
+| `--max-steps` | | `5` | Maximum outer loop execution steps |
+| `--actions` | `-a` | *Dynamic* | Fixed action count (defaults to dynamic prime selection $\le 13$) |
+| `--goal` | `-g` | *Demo goal* | Custom task goal string |
+| `--state` | `-s` | *Demo state*| Initial context or state description |
+| `--no-early-stop` | | `False` | Disable Noul-based completion early stopping |
+| `--no-execute` | | `False` | Plan only; skip executing actions in the workspace |
+| `--workspace` | `-w` | `.` | Target directory for workspace actions |
+
+---
+
+## Project Structure
+
+```
+mcts-agent/
+├── agent/
+│   ├── __init__.py
+│   ├── logger.py         # Structured JSON event emission for visualizer replay
+│   ├── mcts.py           # Selection, Expansion, Simulation, Backpropagation loop
+│   ├── node.py           # Search tree Node data structure & PUCT calculations
+│   └── primitives.py     # TypeSafe Jev primitives (Noul, Choice, Score) wrappers
+├── logs/                 # Search event logs & run summaries (replayable in visualizer)
+├── prompts/
+│   └── rubrics.txt       # Evaluation rubrics and reference criteria
+├── tests/
+│   ├── __init__.py
+│   └── test_mcts.py      # Unit tests for primitives, PUCT, and search loop
+├── .github/
+│   └── workflows/
+│       └── ci.yml        # GitHub Actions CI matrix testing
+├── .gitignore            # Clean git exclusion rules
+├── CONTRIBUTING.md       # Contribution guide & development setup
+├── LICENSE               # MIT License
+├── pyproject.toml        # PEP 517/621 packaging metadata
+├── requirements.txt      # Python dependencies
+├── main.py               # Main CLI entrypoint for closed-loop execution
+├── run_pure_mcts.py      # Standalone script for deep pure MCTS exploration
+├── run_test.py           # Integration benchmark runner
+└── visualizer.html       # Standalone D3.js interactive search tree visualizer
+```
+
+---
+
+## Testing
+
+Run unit tests across all components using Python's standard `unittest` or `pytest`:
+
+```bash
+# Using unittest
+python3 -m unittest discover tests -v
+
+# Or using pytest
+pytest -v
+```
+
+All test cases execute hermetically in mock mode and verify:
+- Node initialization, PUCT computation, and First-Play Urgency
+- Batched validity gating (`Noul`)
+- Prior probability distribution generation (`Choice`)
+- Continuous state scoring (`Score`)
+- MCTSLogger event emission and JSON serialization
+- Multi-step closed-loop search execution
+
+---
+
+## License
+
+This project is licensed under the [MIT License](LICENSE).

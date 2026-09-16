@@ -1,0 +1,132 @@
+{
+  "meta": {
+    "goal": "Deeply research use cases for this AI ev is TypeSafe’s flagship model and the first System One model. Send state and typed questions; get structured answers your code can use directly.\nLarge language models (LLMs) are designed to produce text for humans to read. When you need a model to make a judgment that your code will consume, that creates a mismatch: you are coercing a text-generation system into outputting structured decisions, then parsing the results back into something your code can depend on.Jev is TypeSafe’s flagship model and the first [System One model](https://docs.typesafe.ai/concepts/system-one). System One models are built to make fast, structured decisions that software can use directly. Jev evaluates typed questions against a state and returns structured results directly. No text generation, no parsing. You get typed values and probability distributions that your code can branch on, sort by, and route with.[](https://docs.typesafe.ai/introduction#typesafe-primitives)\nTypeSafe primitives\nTypeSafe exposes three AI primitives. Similar to software primitives, our AI primitives are modular, composable, structured, reliable, and fast. Each asks a different type of question and returns a different type of answer.Question type\nGoal\nReturns\n[Choice](https://docs.typesafe.ai/primitives/choice)\nChoose an option from a list\nchoice, probabilities, confidence\n[Score](https://docs.typesafe.ai/primitives/score)\nScore the state on a rubric\nscore, probabilities, confidence\n[Noul](https://docs.typesafe.ai/primitives/noul)\nIs this statement true?\nnoul (0–1)\nAll three question types can be mixed in a single API call. Every question is evaluated in parallel and in isolation against the same state in one go. Adding questions barely changes the response time. Each question is evaluated independently, so adding more questions does not create context-rot.[](https://docs.typesafe.ai/introduction#atomic-questions-composed-in-code)\nAtomic questions, composed in code\nSystem One models work best when each question asks one specific, well-scoped thing. Think of each question as a gut-check determination: the kind of judgment a highly knowledgeable person could make in a few seconds given the right context.If the question you want to ask would require extended reasoning or weighs multiple independent factors, decompose it. Ask each factor as a separate question, then combine the results with logic in your code. This keeps each individual evaluation reliable and gives you full control over how dimensions are weighted.For example, instead of “rate this startup pitch,” ask separately about market size, technical feasibility, and differentiation. Combine the scores with your own formula. When priorities shift, change a coefficient in your code rather than rewriting a prompt.\n\nThe final report must contain at least 7 breakthrough use cases",
+    "initial_state": "Starting state: No research report has been drafted yet.\nTypeSafe Jev documentation and Python SDK references are available locally in apiReference.md and pythonSDK.md.\nNeed to deeply explore System One primitives (Choice, Score, Noul), analyze unique advantages (fast, no text generation, parallel atomic evaluations, zero context rot, code-composed logic), and author a comprehensive final report containing at least 7 breakthrough use cases.",
+    "iterations": 1,
+    "step": 1,
+    "run_id": "20260915_235315",
+    "timestamp": "2026-09-16T02:53:15.413595+00:00"
+  },
+  "events": [
+    {
+      "type": "init",
+      "node_id": "n0",
+      "state": "Starting state: No research report has been drafted yet.\nTypeSafe Jev documentation and Python SDK references are available locally in apiReference.md and pythonSDK.md.\nNeed to deeply explore System One primitives (Choice, Score, Noul), analyze unique advantages (fast, no text generation, parallel atomic evaluations, zero context rot, code-composed logic), and author a comprehensive final report containing at least 7 breakthrough use cases."
+    },
+    {
+      "type": "iteration_start",
+      "i": 1
+    },
+    {
+      "type": "select",
+      "path": [
+        "n0"
+      ]
+    },
+    {
+      "type": "eval",
+      "node_id": "n0"
+    },
+    {
+      "type": "score",
+      "node_id": "n0",
+      "value": 2.12
+    },
+    {
+      "type": "candidates",
+      "candidates": [
+        "Read and analyze the local documentation files `apiReference.md` and `pythonSDK.md` to examine API mechanics, parameter schemas, and performance traits of Choice, Score, and Noul primitives.",
+        "Brainstorm candidate engineering domains that specifically benefit from sub-second parallel evaluations, zero text parsing, and code-composed probability distributions.",
+        "Select and specify at least 7 high-impact breakthrough use cases, detailing the state payload, decomposed atomic questions, and programmatic composition logic for each.",
+        "Draft the comprehensive research report structuring the System One paradigm, primitive analyses, and detailed implementation blueprints for all 7 use cases.",
+        "Review the report against requirements to verify that each use case distinctly demonstrates the latency, determinism, and composability advantages of TypeSafe Jev over traditional LLMs."
+      ]
+    },
+    {
+      "type": "noul",
+      "action": "Read and analyze the local documentation files `apiReference.md` and `pythonSDK.md` to examine API mechanics, parameter schemas, and performance traits of Choice, Score, and Noul primitives.",
+      "valid": true,
+      "confidence": 0.97
+    },
+    {
+      "type": "noul",
+      "action": "Brainstorm candidate engineering domains that specifically benefit from sub-second parallel evaluations, zero text parsing, and code-composed probability distributions.",
+      "valid": true,
+      "confidence": 0.93
+    },
+    {
+      "type": "noul",
+      "action": "Select and specify at least 7 high-impact breakthrough use cases, detailing the state payload, decomposed atomic questions, and programmatic composition logic for each.",
+      "valid": false,
+      "confidence": 0.75
+    },
+    {
+      "type": "noul",
+      "action": "Draft the comprehensive research report structuring the System One paradigm, primitive analyses, and detailed implementation blueprints for all 7 use cases.",
+      "valid": false,
+      "confidence": 0.65
+    },
+    {
+      "type": "noul",
+      "action": "Review the report against requirements to verify that each use case distinctly demonstrates the latency, determinism, and composability advantages of TypeSafe Jev over traditional LLMs.",
+      "valid": false,
+      "confidence": 0.19
+    },
+    {
+      "type": "eval",
+      "node_id": "n1"
+    },
+    {
+      "type": "score",
+      "node_id": "n1",
+      "value": 3.05
+    },
+    {
+      "type": "new_node",
+      "node_id": "n1",
+      "parent_id": "n0",
+      "action": "Read and analyze the local documentation files `apiReference.md` and `pythonSDK.md` to examine API mechanics, parameter schemas, and performance traits of Choice, Score, and Noul primitives.",
+      "prior": 1.0,
+      "state": "Starting state: No research report has been drafted yet.\nTypeSafe Jev documentation and Python SDK references are available locally in apiReference.md and pythonSDK.md.\nNeed to deeply explore System One primitives (Choice, Score, Noul), analyze unique advantages (fast, no text generation, parallel atomic evaluations, zero context rot, code-composed logic), and author a comprehensive final report containing at least 7 breakthrough use cases.\n[Action taken]: Read and analyze the local documentation files `apiReference.md` and `pythonSDK.md` to examine API mechanics, parameter schemas, and performance traits of Choice, Score, and Noul primitives."
+    },
+    {
+      "type": "eval",
+      "node_id": "n2"
+    },
+    {
+      "type": "score",
+      "node_id": "n2",
+      "value": 2.8
+    },
+    {
+      "type": "new_node",
+      "node_id": "n2",
+      "parent_id": "n0",
+      "action": "Brainstorm candidate engineering domains that specifically benefit from sub-second parallel evaluations, zero text parsing, and code-composed probability distributions.",
+      "prior": 0.0,
+      "state": "Starting state: No research report has been drafted yet.\nTypeSafe Jev documentation and Python SDK references are available locally in apiReference.md and pythonSDK.md.\nNeed to deeply explore System One primitives (Choice, Score, Noul), analyze unique advantages (fast, no text generation, parallel atomic evaluations, zero context rot, code-composed logic), and author a comprehensive final report containing at least 7 breakthrough use cases.\n[Action taken]: Brainstorm candidate engineering domains that specifically benefit from sub-second parallel evaluations, zero text parsing, and code-composed probability distributions."
+    },
+    {
+      "type": "backprop_start",
+      "path": [
+        "n0"
+      ],
+      "value": 2.12
+    },
+    {
+      "type": "node_update",
+      "node_id": "n0",
+      "visits": 1,
+      "value_sum": 2.12
+    },
+    {
+      "type": "iteration_end",
+      "i": 1
+    },
+    {
+      "type": "complete",
+      "best_action": "Read and analyze the local documentation files `apiReference.md` and `pythonSDK.md` to examine API mechanics, parameter schemas, and performance traits of Choice, Score, and Noul primitives.",
+      "best_node_id": "n1"
+    }
+  ]
+}
