@@ -124,8 +124,8 @@ The repository includes a standalone web visualizer [`visualizer.html`](visualiz
 
 - Python $\ge$ 3.10
 - Git
-- *(Optional)* [TypeSafe API Key](https://typesafe.ai) for live discriminative evaluations
-- *(Optional)* Antigravity CLI (`agy`) or Gemini API key for live action expansion
+- [TypeSafe API Key](https://typesafe.ai)
+- Antigravity CLI (`agy`) or Gemini API key
 
 ### Installation
 
@@ -166,7 +166,7 @@ python main.py --mock
 
 ### 2. Live Demo Run
 
-Run against the default demo goal (designing a minimal FastAPI application):
+Run against the default demo goal:
 
 ```bash
 python main.py
