@@ -42,6 +42,9 @@ NOUL_COMPLETION_THRESHOLD: float = 0.85
 # Candidate primes for dynamic branching factor
 PRIME_ACTION_COUNTS: list[int] = [2, 3, 5, 7, 11, 13]
 
+# Candidate primes for dynamic simulation lookahead depth
+PRIME_SIMULATION_DEPTHS: list[int] = [2, 3, 5]
+
 # Score rubric — 10 ordered levels mapping to a 1-10 scale.
 # TypeSafe Score returns a 0-indexed float (0..9); we add 1 to report as 1-10.
 _SCORE_RUBRIC: list[str] = [
@@ -333,4 +336,123 @@ def check_task_completion(
     except TypeSafeAPIError as exc:
         print(f"[primitives] Noul completion check error: {exc}.")
         return False, 0.0
+
+
+def select_simulation_depth(
+    state: str,
+    goal: str,
+    *,
+    candidate_depths: list[int] | None = None,
+    mock: bool = _USE_MOCK,
+) -> int:
+    """
+    Use TypeSafe Choice to dynamically select the number of simulated lookahead
+    steps (depth) to project into the future during MCTS simulation from primes: 2, 3, 5.
+    """
+    depths = candidate_depths or PRIME_SIMULATION_DEPTHS
+    if mock:
+        return random.choice(depths)
+
+    client = _get_client()
+    str_depths = [str(d) for d in depths]
+    criteria = {s: None for s in str_depths}
+
+    try:
+        response = client.system_one(
+            state={
+                "goal": goal,
+                "current_state": state,
+            },
+            questions={
+                "sim_depth": Choice(
+                    instructions=(
+                        "Given the current problem state and overall goal, choose how many "
+                        "simulated lookahead steps (depth) should be projected into the future "
+                        "during MCTS rollout simulation to reliably evaluate downstream trajectory "
+                        "risk and goal advancement. Options are prime numbers: 2, 3, 5."
+                    ),
+                    criteria=criteria,
+                )
+            },
+        )
+        probs = response.choices["sim_depth"].probabilities
+        chosen_str = max(probs, key=lambda k: probs.get(k, 0.0))
+        chosen_depth = int(chosen_str)
+        print(f"[primitives] Dynamic simulation depth chosen via Choice: {chosen_depth} (probs: {probs})")
+        return chosen_depth
+    except TypeSafeAPIError as exc:
+        print(f"[primitives] Choice simulation depth error: {exc}. Defaulting to 2.")
+        return 2
+
+
+def discriminative_choose_best_action(
+    goal: str,
+    state: str,
+    candidates: list[Any],
+    *,
+    mock: bool = _USE_MOCK,
+) -> Any:
+    """
+    Use TypeSafe Choice to make the final discriminative decision on which candidate branch
+    to commit to and execute, synthesizing MCTS statistics (visits, value score, prior) with
+    semantic goal alignment.
+    """
+    if not candidates:
+        raise ValueError("No candidate nodes to choose from.")
+    if len(candidates) == 1:
+        return candidates[0]
+
+    # Filter out unvisited nodes if any visited nodes exist
+    visited = [c for c in candidates if c.visits > 0]
+    eval_candidates = visited if visited else candidates
+
+    if mock:
+        return max(eval_candidates, key=lambda c: (c.visits, c.average_value))
+
+    client = _get_client()
+    action_to_node: dict[str, Any] = {}
+    criteria: dict[str, str | None] = {}
+    for i, node in enumerate(eval_candidates):
+        key = node.action_taken or f"action_{i}"
+        action_to_node[key] = node
+        criteria[key] = (
+            f"MCTS visits: {node.visits}, "
+            f"Average score: {node.average_value:.2f}/10, "
+            f"Prior: {node.prior_probability:.2f}"
+        )
+
+    try:
+        response = client.system_one(
+            state={
+                "goal": goal,
+                "current_state": state,
+            },
+            questions={
+                "chosen_action": Choice(
+                    instructions=(
+                        "Given the goal, current state context, and MCTS search tree statistics "
+                        "for each candidate branch, select the single best immediate action to "
+                        "execute next in the real environment."
+                    ),
+                    criteria=criteria,
+                )
+            },
+        )
+        choice_key = response.choices["chosen_action"].choice
+        best_node = action_to_node.get(choice_key)
+        if best_node is None:
+            probs = response.choices["chosen_action"].probabilities
+            if probs:
+                top_key = max(probs, key=lambda k: probs.get(k, 0.0))
+                best_node = action_to_node.get(top_key)
+
+        if best_node is not None:
+            print(f"[primitives] Discriminative Choice selected immediate action: '{best_node.action_taken}'")
+            return best_node
+
+        return max(eval_candidates, key=lambda c: (c.visits, c.average_value))
+    except TypeSafeAPIError as exc:
+        print(f"[primitives] Choice decision error: {exc}. Falling back to MCTS robust child.")
+        return max(eval_candidates, key=lambda c: (c.visits, c.average_value))
+
 

@@ -69,6 +69,7 @@ def run_demo(
     early_stop_noul: bool = True,
     execute: bool = True,
     workspace_dir: str | None = None,
+    simulation_depth: int | None = None,
 ) -> None:
     mock = os.getenv("USE_MOCK_PRIMITIVES", "false").lower() in ("1", "true", "yes")
     active_goal = goal or _DEMO_GOAL
@@ -83,6 +84,7 @@ def run_demo(
         max_steps=max_steps,
         iterations_per_step=iterations,
         actions_per_node=actions_per_node,
+        simulation_depth=simulation_depth,
         early_stop_noul=early_stop_noul,
         execute=execute,
         workspace_dir=workspace_dir,
@@ -163,6 +165,7 @@ def main() -> None:
     parser.add_argument("--max-steps", type=int, default=int(os.getenv("MCTS_MAX_STEPS", "5")), help="Max steps in the execute-review-adapt loop (default: 5)")
     parser.add_argument("--iterations", "-n", type=int, default=int(os.getenv("MCTS_ITERATIONS", "10")), help="MCTS iterations per step (default: 10)")
     parser.add_argument("--actions", "-a", type=int, default=None, help="Fixed actions per node (default: dynamic prime selection up to 13)")
+    parser.add_argument("--sim-depth", type=int, default=None, help="Fixed simulation lookahead depth (default: dynamic prime selection from 2, 3, 5)")
     parser.add_argument("--goal", "-g", type=str, default=None, help="Custom goal for MCTS agent")
     parser.add_argument("--state", "-s", type=str, default=None, help="Initial state / context for search")
     parser.add_argument("--no-early-stop", action="store_true", help="Disable Noul-based completion early stopping")
@@ -198,6 +201,7 @@ def main() -> None:
             early_stop_noul=early_stop,
             execute=execute_plan,
             workspace_dir=args.workspace,
+            simulation_depth=args.sim_depth,
         )
 
 

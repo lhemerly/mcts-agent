@@ -23,11 +23,14 @@ from agent.logger import MCTSLogger, save_agent_summary
 from agent.node import Node
 from agent.primitives import (
     NOUL_COMPLETION_THRESHOLD,
+    PRIME_SIMULATION_DEPTHS,
     batch_check_validity,
     check_task_completion,
+    discriminative_choose_best_action,
     evaluate_state,
     get_action_priors,
     select_action_count,
+    select_simulation_depth,
 )
 
 _USE_MOCK_LLM = os.getenv("USE_MOCK_PRIMITIVES", "false").lower() in ("1", "true", "yes")
@@ -170,10 +173,43 @@ def _expand(
     return new_children
 
 
-def _simulate(node: Node, goal: str, logger: MCTSLogger) -> float:
+def _simulate(
+    node: Node,
+    goal: str,
+    logger: MCTSLogger,
+    *,
+    rollout_depth: int = 1,
+) -> float:
+    """
+    Multi-step rollout simulation:
+    Starting from node.state, simulate lookahead steps up to `rollout_depth`.
+    At each simulated step:
+      - Propose candidate actions from current simulated state
+      - Prune invalid actions via Noul
+      - Select the most promising simulated step via Choice priors
+      - Advance the simulated state
+    Finally, evaluate the projected horizon state using Score.
+    """
     logger.emit_eval(node)
-    value = evaluate_state(goal, node.state)
-    print(f"  [score] Value={value:.3f}/10 for action='{node.action_taken}'")
+
+    current_sim_state = node.state
+    if rollout_depth > 1:
+        print(f"  [simulate] Projecting {rollout_depth} steps ahead into the future...")
+        for step_idx in range(1, rollout_depth):
+            cands = _propose_actions(current_sim_state, goal, n=2)
+            validity = batch_check_validity(current_sim_state, cands)
+            valid_cands = [a for a in cands if validity.get(a, (False, 0.0))[0]]
+            if not valid_cands:
+                valid_cands = cands
+
+            priors = get_action_priors(current_sim_state, valid_cands)
+            sim_action = max(valid_cands, key=lambda a: priors.get(a, 0.0))
+            current_sim_state += f"\n[Simulated Lookahead Step {step_idx + 1}]: {sim_action}"
+            print(f"    [rollout step {step_idx + 1}/{rollout_depth}]: '{sim_action[:60]}'")
+
+    value = evaluate_state(goal, current_sim_state)
+    depth_note = f" (sim depth={rollout_depth})" if rollout_depth > 1 else ""
+    print(f"  [score] Value={value:.3f}/10 for action='{node.action_taken}'{depth_note}")
     logger.emit_score(node, value)
     return value
 
@@ -199,6 +235,7 @@ def run_mcts(
     *,
     iterations: int = 15,
     actions_per_node: int | None = None,
+    simulation_depth: int | None = None,
     early_stop_noul: bool = True,
     step: int | None = None,
     run_id: str | None = None,
@@ -216,6 +253,9 @@ def run_mcts(
     actions_per_node : int | None
         Fixed number of candidate actions to propose, or None to use TypeSafe Choice
         to dynamically choose branching variance among primes <= 13 (2, 3, 5, 7, 11, 13).
+    simulation_depth : int | None
+        Fixed number of lookahead rollout steps to project into the future, or None
+        to use TypeSafe Choice to dynamically choose prime depth from (2, 3, 5).
     early_stop_noul : bool
         If True, queries Noul at each iteration to detect if the task has been
         completed or refined enough, stopping search early when confidence is high.
@@ -240,8 +280,18 @@ def run_mcts(
     )
     logger.emit_init(root)
 
+    # Dynamic lookahead depth from primes (2, 3, 5) if not fixed
+    if simulation_depth is not None:
+        rollout_depth = simulation_depth
+    else:
+        rollout_depth = select_simulation_depth(root.state, goal)
+
     step_info = f"Step {step} | " if step is not None else ""
-    mode_info = f"max_iter={iterations} | actions={'dynamic (primes <= 13)' if actions_per_node is None else actions_per_node}"
+    mode_info = (
+        f"max_iter={iterations} | "
+        f"actions={'dynamic (primes <= 13)' if actions_per_node is None else actions_per_node} | "
+        f"sim_depth={rollout_depth}"
+    )
     print(f"\n{'='*60}")
     print(f"Starting MCTS  |  {step_info}{mode_info}  |  goal='{goal[:80]}'")
     print(f"{'='*60}\n")
@@ -255,8 +305,8 @@ def run_mcts(
         leaf = _select(root, exploration_constant, logger)
         print(f"  [select] Leaf: visits={leaf.visits}, action='{leaf.action_taken}'")
 
-        # 2. Simulation
-        value = _simulate(leaf, goal, logger)
+        # 2. Simulation (multi-step lookahead rollout)
+        value = _simulate(leaf, goal, logger, rollout_depth=rollout_depth)
 
         # 3. Expansion
         if leaf.is_leaf:
@@ -279,15 +329,14 @@ def run_mcts(
 
         logger.emit_iteration_end(i)
 
-    # Best action = highest visits among root's direct children (standard robust MCTS)
-    # Tiebreaker: average value
     if not root.children:
         print("[mcts] Warning: root has no children after search.")
         logger.emit_complete(root)
         log_path = logger.save()
         return root, str(log_path)
 
-    best = max(root.children, key=lambda c: (c.average_value, c.visits, c.prior_probability))
+    # Use TypeSafe Choice to make the final discriminative decision on which branch to commit to
+    best = discriminative_choose_best_action(goal, root.state, root.children)
     logger.emit_complete(best)
 
     print(f"\n{'='*60}")
@@ -455,6 +504,7 @@ def run_closed_loop_agent(
     max_steps: int = 5,
     iterations_per_step: int = 1,
     actions_per_node: int | None = None,
+    simulation_depth: int | None = None,
     early_stop_noul: bool = True,
     execute: bool = True,
     exploration_constant: float = 1.4,
@@ -499,6 +549,7 @@ def run_closed_loop_agent(
             goal=goal,
             iterations=iterations_per_step,
             actions_per_node=actions_per_node,
+            simulation_depth=simulation_depth,
             early_stop_noul=early_stop_noul,
             step=step,
             run_id=run_id,

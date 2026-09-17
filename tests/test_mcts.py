@@ -6,15 +6,23 @@ import unittest
 # Ensure mock mode is active for all unit tests
 os.environ["USE_MOCK_PRIMITIVES"] = "true"
 
+import sys
+_REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _REPO_ROOT not in sys.path:
+    sys.path.insert(0, _REPO_ROOT)
+
 from agent.node import Node
 from agent.primitives import (
     batch_check_validity,
     get_action_priors,
     evaluate_state,
     select_action_count,
+    select_simulation_depth,
+    discriminative_choose_best_action,
     check_task_completion,
     NOUL_VALIDITY_THRESHOLD,
     PRIME_ACTION_COUNTS,
+    PRIME_SIMULATION_DEPTHS,
 )
 from agent.logger import MCTSLogger
 from agent.mcts import run_mcts, run_closed_loop_agent
@@ -84,6 +92,21 @@ class TestPrimitivesMock(unittest.TestCase):
         count = select_action_count("state", "goal", mock=True)
         self.assertIn(count, PRIME_ACTION_COUNTS)
 
+    def test_select_simulation_depth(self):
+        depth = select_simulation_depth("state", "goal", mock=True)
+        self.assertIn(depth, PRIME_SIMULATION_DEPTHS)
+
+    def test_discriminative_choose_best_action(self):
+        root = Node(state="Root state")
+        child1 = Node(state="Child 1", parent=root, action_taken="Action 1")
+        child1.visits = 3
+        child1.value_sum = 24.0  # avg 8.0
+        child2 = Node(state="Child 2", parent=root, action_taken="Action 2")
+        child2.visits = 5
+        child2.value_sum = 45.0  # avg 9.0
+        chosen = discriminative_choose_best_action("Goal", "State", [child1, child2], mock=True)
+        self.assertEqual(chosen.action_taken, "Action 2")
+
     def test_check_task_completion(self):
         is_done, conf = check_task_completion("goal", "state", mock=True)
         self.assertIsInstance(is_done, bool)
@@ -132,6 +155,23 @@ class TestMCTSLoop(unittest.TestCase):
             self.assertGreater(root.visits, 0)
             self.assertGreater(len(root.children), 0)
 
+    def test_run_mcts_multistep_simulation_mock(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Node(state="Test multi-step state")
+            best_node, log_path = run_mcts(
+                root=root,
+                goal="Achieve multi-step goal",
+                iterations=2,
+                actions_per_node=2,
+                simulation_depth=3,
+                early_stop_noul=False,
+                log_dir=tmpdir,
+            )
+            self.assertIsNotNone(best_node)
+            self.assertTrue(os.path.exists(log_path))
+            self.assertGreater(root.visits, 0)
+            self.assertGreater(len(root.children), 0)
+
     def test_closed_loop_agent_mock(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             summary = run_closed_loop_agent(
@@ -140,6 +180,7 @@ class TestMCTSLoop(unittest.TestCase):
                 max_steps=1,
                 iterations_per_step=1,
                 actions_per_node=2,
+                simulation_depth=2,
                 early_stop_noul=False,
                 execute=False,
                 log_dir=tmpdir,
