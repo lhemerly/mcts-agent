@@ -658,12 +658,15 @@ def visualize(
             super().__init__(*args, directory=str(serve_dir), **kwargs)
 
         def do_GET(self):
-            if self.path in ("/", ""):
+            requested_path = self.path.partition("?")[0]
+            if requested_path in ("/", ""):
                 self.path = "/visualizer.html"
+            elif requested_path != "/visualizer.html":
+                self.send_error(404)
+                return
             return super().do_GET()
 
         def end_headers(self):
-            self.send_header("Access-Control-Allow-Origin", "*")
             self.send_header("Cache-Control", "no-cache")
             super().end_headers()
 
