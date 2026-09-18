@@ -326,9 +326,9 @@ def run(
             err_console.print(f"[bold red]Execution error:[/bold red] {exc}")
             raise typer.Exit(code=1)
 
-    summary_file = os.path.join("logs", f"run_{summary.get('run_id')}_summary.json")
-    if os.path.exists(summary_file):
-        summary["summary_file"] = os.path.abspath(summary_file)
+    summary_file = Path(__file__).resolve().parent.parent / "logs" / f"run_{summary.get('run_id')}_summary.json"
+    if summary_file.exists():
+        summary["summary_file"] = str(summary_file.resolve())
 
     if is_json:
         sys.stdout.write(json.dumps(summary, indent=2, default=str) + "\n")
