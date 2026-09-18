@@ -95,13 +95,19 @@ The repository includes a standalone web visualizer [`visualizer.html`](visualiz
 
 ### How to Run the Visualizer
 
-1. Open `visualizer.html` directly in any web browser:
+1. **Via the CLI tool**:
+   ```bash
+   mcts-agent visualize --port 8000
+   ```
+   This automatically serves the repository root over HTTP and launches `http://127.0.0.1:8000/visualizer.html` in your default browser.
+
+2. **Or open directly**:
    ```bash
    # Option A: Open directly in your browser
-   open visualizer.html   # macOS
+   open visualizer.html     # macOS
    xdg-open visualizer.html # Linux
 
-   # Option B: Run via a simple local HTTP server
+   # Option B: Run via standard http.server
    python3 -m http.server 8000
    # Then open http://localhost:8000/visualizer.html
    ```
@@ -138,8 +144,8 @@ cd mcts-agent
 python3 -m venv .venv
 source .venv/bin/activate
 
-# 3. Install dependencies
-pip install -r requirements.txt
+# 3. Install in editable mode with CLI entry point
+pip install -e .
 ```
 
 ### Environment Configuration
@@ -156,56 +162,140 @@ AGY_MODEL=gemini-3.8-flash-medium
 
 ## Usage
 
-### 1. Mock Mode (Zero Keys Needed)
+The CLI provides a modern, Rich-stylized terminal experience with colored panels, search rollout progress, and step tables, along with full headless / machine-parseable support for AI agents.
 
-Run the full closed-loop agent hermetically using built-in mock primitives:
+### 1. Run Closed-Loop MCTS
+
+Execute search and execution with a custom goal and workspace:
 
 ```bash
-python main.py --mock
+mcts-agent run --goal "Build a REST API" --workspace ./my-project --max-steps 5
 ```
 
 ### 2. Live Demo Run
 
-Run against the default demo goal:
+Run against the built-in demo goal:
 
 ```bash
-python main.py
+mcts-agent demo
 ```
 
-### 3. Interactive Custom Goal
+### 3. Hermetic Mock Mode (Zero Keys Required)
 
-Prompt the agent with your own goal and interactively approve or review execution steps:
+Run the full closed-loop search loop with mock primitives (no network calls or API keys needed):
 
 ```bash
-python main.py --interactive
+mcts-agent demo --mock
+# or
+mcts-agent run --mock --goal "Create a hello world app"
 ```
 
-### 4. Pure MCTS Search (Deep Tree Exploration)
+### 4. Interactive Human-in-the-Loop Mode
 
-Run pure discriminative MCTS to explore deep reasoning paths without workspace execution:
+Interactively inspect MCTS action recommendations and approve, skip, or manually redirect states:
 
 ```bash
-python run_pure_mcts.py 15
+mcts-agent interactive
+```
+
+### 5. Launch the Visualizer Server
+
+Start a local HTTP server serving the D3 visualizer:
+
+```bash
+mcts-agent visualize --port 8000
+```
+
+### 6. Backward Compatibility
+
+You can continue invoking the CLI via `main.py` directly:
+
+```bash
+python main.py --mock --max-steps 3
 ```
 
 ---
 
-## CLI Options
+## AI-Friendly & Headless Features
 
-`main.py` supports the following flags:
+For automated pipelines, orchestrators, and AI agents, `mcts-agent` provides clean stdout modes:
 
-| Flag | Short | Default | Description |
+### Machine-Parseable JSON Output (`--json`)
+Emits a clean, valid JSON summary to `stdout` with zero ANSI escape codes, progress banners, or decorative styling:
+
+```bash
+mcts-agent run --mock --goal "Refactor user authentication" --json > result.json
+```
+
+Or pipe directly into tools like `jq`:
+```bash
+mcts-agent run --mock --json | jq '.steps[] | {step, action, score, visits}'
+```
+
+Example JSON response:
+```json
+{
+  "goal": "Refactor user authentication",
+  "completed": true,
+  "completion_confidence": 0.92,
+  "total_steps_run": 2,
+  "steps": [
+    {
+      "step": 1,
+      "action": "Analyze existing authentication handlers in auth/login.py",
+      "score": 8.75,
+      "visits": 10,
+      "mcts_log": "logs/mcts_20260917_214342_step1.json",
+      "execution": {
+        "success": true,
+        "stdout": "...",
+        "returncode": 0
+      }
+    }
+  ],
+  "summary_file": "logs/run_20260917_214342_summary.json"
+}
+```
+
+### Quiet and Headless Flags
+- `--quiet` / `-q`: Suppresses informational banners and progress spinners while retaining essential results.
+- `--no-color`: Disables ANSI coloring and sets `NO_COLOR=1` for clean plaintext logging.
+
+---
+
+## CLI Options Reference
+
+### Commands
+- `mcts-agent run [OPTIONS]`: Run closed-loop MCTS search with custom goal, state, and execution options.
+- `mcts-agent demo [OPTIONS]`: Run pre-configured task management demo.
+- `mcts-agent interactive [OPTIONS]`: Step-by-step human-in-the-loop search with manual approval.
+- `mcts-agent visualize [OPTIONS]`: Launch local HTTP server for `visualizer.html`.
+
+### Common Options (`run` & `demo`)
+
+| Option | Short | Default | Description |
 | :--- | :--- | :--- | :--- |
-| `--mock` | | `False` | Run with mock primitives (no API calls or keys required) |
-| `--interactive` | `-i` | `False` | Interactive mode with step confirmation prompts |
-| `--iterations` | `-n` | `10` | MCTS search iterations per reasoning step |
-| `--max-steps` | | `5` | Maximum outer loop execution steps |
-| `--actions` | `-a` | *Dynamic* | Fixed action count (defaults to dynamic prime selection $\le 13$) |
 | `--goal` | `-g` | *Demo goal* | Custom task goal string |
-| `--state` | `-s` | *Demo state*| Initial context or state description |
+| `--state` | `-s` | *Demo state* | Initial state / context description |
+| `--workspace` | `-w` | `.` | Target directory for workspace actions |
+| `--max-steps` | | `5` | Maximum outer loop execution steps |
+| `--iterations` | `-n` | `10` | MCTS search iterations per reasoning step |
+| `--sim-depth` | | *Dynamic* | Fixed lookahead simulation depth (primes 2, 3, 5) |
+| `--actions` | `-a` | *Dynamic* | Fixed candidate actions per node (primes $\le 13$) |
+| `--mock` | | `False` | Run hermetically with mock primitives (no API keys required) |
 | `--no-early-stop` | | `False` | Disable Noul-based completion early stopping |
 | `--no-execute` | | `False` | Plan only; skip executing actions in the workspace |
-| `--workspace` | `-w` | `.` | Target directory for workspace actions |
+| `--json` | | `False` | Output clean machine-parseable JSON summary to stdout |
+| `--quiet` | `-q` | `False` | Suppress informational messages and progress banners |
+| `--no-color` | | `False` | Disable ANSI color output |
+
+### `visualize` Options
+
+| Option | Short | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `--port` | `-p` | `8000` | Port for local HTTP visualizer server |
+| `--host` | | `127.0.0.1` | Host interface to bind server to |
+| `--browser` / `--no-browser` | | `True` | Automatically open default web browser |
 
 ---
 

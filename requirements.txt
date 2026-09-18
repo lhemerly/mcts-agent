@@ -6,3 +6,5 @@ pydantic==2.13.5
 pydantic_core==2.46.5
 python-dotenv==1.2.3
 typesafe-sdk==0.6.0
+typer>=0.9.0
+rich>=13.0.0

@@ -4,6 +4,7 @@ __pycache__/
 *$py.class
 
 # Virtual environments
+.venv
 .venv/
 venv/
 ENV/
@@ -42,3 +43,4 @@ Thumbs.db
 
 # Workspace / runtime scratch
 scratch/
+logs/

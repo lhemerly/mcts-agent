@@ -26,6 +26,7 @@ load_dotenv(_ENV_PATH)
 if not os.getenv("TYPESAFE_API_KEY") and os.getenv("API_KEY"):
     os.environ["TYPESAFE_API_KEY"] = os.environ["API_KEY"]
 
+from agent.cli import app
 from agent.mcts import (
     adapt_state,
     execute_single_action,
