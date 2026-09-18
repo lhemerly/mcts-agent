@@ -25,6 +25,8 @@ from pathlib import Path
 from typing import Any, Optional
 
 from dotenv import load_dotenv
+
+load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
