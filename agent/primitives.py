@@ -33,6 +33,10 @@ except ImportError:
 # ── Configuration ──────────────────────────────────────────────────────────────
 _USE_MOCK = os.getenv("USE_MOCK_PRIMITIVES", "false").lower() in ("1", "true", "yes")
 
+
+def _is_mock_enabled() -> bool:
+    return os.getenv("USE_MOCK_PRIMITIVES", "false").lower() in ("1", "true", "yes")
+
 # Pruning threshold: discard actions whose Noul probability is below this.
 NOUL_VALIDITY_THRESHOLD: float = 0.8
 
@@ -103,7 +107,7 @@ def _mock_evaluate_state() -> float:
 # ── Public primitives ──────────────────────────────────────────────────────────
 
 def batch_check_validity(
-    state: str, actions: list[str], *, mock: bool = _USE_MOCK
+    state: str, actions: list[str], *, mock: bool | None = None
 ) -> dict[str, tuple[bool, float]]:
     """
     Noul primitive — batched pruning gate.
@@ -119,6 +123,8 @@ def batch_check_validity(
         is_valid   — True if the Noul probability ≥ NOUL_VALIDITY_THRESHOLD
         confidence — raw Noul probability (0–1, where 1 = definitely yes)
     """
+    if mock is None:
+        mock = _is_mock_enabled()
     if not actions:
         return {}
 
@@ -159,7 +165,7 @@ def batch_check_validity(
 
 
 def get_action_priors(
-    state: str, actions: list[str], *, mock: bool = _USE_MOCK
+    state: str, actions: list[str], *, mock: bool | None = None
 ) -> dict[str, float]:
     """
     Choice primitive — policy (prior probability) assignment.
@@ -171,6 +177,9 @@ def get_action_priors(
     -------
     dict mapping action text → prior probability (values sum to ~1.0)
     """
+    if mock is None:
+        mock = _is_mock_enabled()
+
     if mock:
         return _mock_get_action_priors(actions)
 
@@ -202,7 +211,7 @@ def get_action_priors(
         return {a: 1.0 / n for a in actions}
 
 
-def evaluate_state(goal: str, simulated_state: str, *, mock: bool = _USE_MOCK) -> float:
+def evaluate_state(goal: str, simulated_state: str, *, mock: bool | None = None) -> float:
     """
     Score primitive — value function / simulation replacement.
 
@@ -214,6 +223,9 @@ def evaluate_state(goal: str, simulated_state: str, *, mock: bool = _USE_MOCK) -
     -------
     float in [1, 10] — higher is better.
     """
+    if mock is None:
+        mock = _is_mock_enabled()
+
     if mock:
         return _mock_evaluate_state()
 
@@ -250,7 +262,7 @@ def select_action_count(
     goal: str,
     *,
     candidate_counts: list[int] | None = None,
-    mock: bool = _USE_MOCK,
+    mock: bool | None = None,
 ) -> int:
     """
     Use TypeSafe Choice to dynamically select the number of candidate actions
@@ -258,6 +270,8 @@ def select_action_count(
 
     Provides path variance by exploring more branches when appropriate.
     """
+    if mock is None:
+        mock = _is_mock_enabled()
     counts = candidate_counts or PRIME_ACTION_COUNTS
     if mock:
         return random.choice(counts[:4])  # bias mock to 2, 3, 5, 7
@@ -299,7 +313,7 @@ def check_task_completion(
     goal: str,
     state: str,
     *,
-    mock: bool = _USE_MOCK,
+    mock: bool | None = None,
 ) -> tuple[bool, float]:
     """
     Use TypeSafe Noul to determine if the task has been completed or the plan
@@ -309,6 +323,8 @@ def check_task_completion(
     -------
     (is_completed, confidence)
     """
+    if mock is None:
+        mock = _is_mock_enabled()
     if mock:
         # Mock mode: never complete early by default
         return False, 0.0
@@ -343,12 +359,14 @@ def select_simulation_depth(
     goal: str,
     *,
     candidate_depths: list[int] | None = None,
-    mock: bool = _USE_MOCK,
+    mock: bool | None = None,
 ) -> int:
     """
     Use TypeSafe Choice to dynamically select the number of simulated lookahead
     steps (depth) to project into the future during MCTS simulation from primes: 2, 3, 5.
     """
+    if mock is None:
+        mock = _is_mock_enabled()
     depths = candidate_depths or PRIME_SIMULATION_DEPTHS
     if mock:
         return random.choice(depths)
@@ -390,13 +408,15 @@ def discriminative_choose_best_action(
     state: str,
     candidates: list[Any],
     *,
-    mock: bool = _USE_MOCK,
+    mock: bool | None = None,
 ) -> Any:
     """
     Use TypeSafe Choice to make the final discriminative decision on which candidate branch
     to commit to and execute, synthesizing MCTS statistics (visits, value score, prior) with
     semantic goal alignment.
     """
+    if mock is None:
+        mock = _is_mock_enabled()
     if not candidates:
         raise ValueError("No candidate nodes to choose from.")
     if len(candidates) == 1:

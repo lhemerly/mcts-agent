@@ -33,7 +33,9 @@ from agent.primitives import (
     select_simulation_depth,
 )
 
-_USE_MOCK_LLM = os.getenv("USE_MOCK_PRIMITIVES", "false").lower() in ("1", "true", "yes")
+def _is_mock_llm() -> bool:
+    return os.getenv("USE_MOCK_PRIMITIVES", "false").lower() in ("1", "true", "yes")
+
 _AGY_MODEL = os.getenv("AGY_MODEL", "gemini-3.8-flash-medium")
 
 _MOCK_ACTION_POOL: list[str] = [
@@ -67,7 +69,7 @@ def _propose_actions(state: str, goal: str, n: int = 3) -> list[str]:
     Ask Gemini 3.8 Flash (via `agy --print`) to propose `n` distinct next
     actions. agy is the authenticated Gemini harness — no API key needed.
     """
-    if _USE_MOCK_LLM:
+    if _is_mock_llm():
         import random
         return random.sample(_MOCK_ACTION_POOL, min(n, len(_MOCK_ACTION_POOL)))
 
@@ -372,7 +374,7 @@ def execute_single_action(
     """
     Execute ONLY this single immediate action in the real workspace using agy.
     """
-    if _USE_MOCK_LLM:
+    if _is_mock_llm():
         return {
             "success": True,
             "stdout": f"[mock] Successfully executed action: {action}",
@@ -380,6 +382,7 @@ def execute_single_action(
             "returncode": 0,
         }
 
+    abs_workspace = os.path.abspath(workspace_dir)
     prompt = textwrap.dedent(f"""\
         You are the execution agent in a closed-loop reasoning system.
         
@@ -389,22 +392,27 @@ def execute_single_action(
         Current context / state:
         {current_state}
         
+        Target Workspace Directory:
+        {abs_workspace}
+        
         Task:
         Execute ONLY this specific immediate action now in this workspace:
         >>> {action} <<<
         
+        All files created or modified MUST be written inside {abs_workspace}.
         Apply the necessary edits, write the code, or run the commands required for this action.
         Do NOT attempt to execute future hypothetical steps beyond this immediate action.
     """)
 
     print(f"\n{'='*60}")
-    print(f"[executor] Executing action with agy: '{action}'")
+    print(f"[executor] Executing action with agy in {abs_workspace}: '{action}'")
     print(f"{'='*60}\n")
 
     cmd = [
         "agy",
         "--model", _AGY_MODEL,
         "--mode", "accept-edits",
+        "--add-dir", abs_workspace,
         "--dangerously-skip-permissions",
         "--print-timeout", "10m0s",
         "--print",
