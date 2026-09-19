@@ -272,7 +272,7 @@ def run_mcts(
     root: Node,
     goal: str,
     *,
-    iterations: int = 15,
+    iterations: int | None = None,
     actions_per_node: int | None = None,
     simulation_depth: int | None = None,
     early_stop_noul: bool = True,
@@ -287,8 +287,9 @@ def run_mcts(
 
     Parameters
     ----------
-    iterations : int
-        Maximum number of iterations.
+    iterations : int | None
+        Maximum number of iterations, or None to let JEV / TypeSafe Noul dynamically decide
+        when search convergence or completion is reached.
     actions_per_node : int | None
         Fixed number of candidate actions to propose, or None to use TypeSafe Choice
         to dynamically choose branching variance among primes <= 13 (2, 3, 5, 7, 11, 13).
@@ -309,10 +310,17 @@ def run_mcts(
     -------
     (best_child, log_path) — best immediate action node + path to the JSON log.
     """
+    if iterations is None and not early_stop_noul:
+        raise ValueError("Cannot disable early_stop_noul when iterations is set to None (dynamic mode requires early stopping).")
+
+    # Safety ceiling for dynamic mode to prevent unbounded loops/API consumption
+    max_dynamic_iterations = int(os.getenv("MCTS_DYNAMIC_MAX_ITERATIONS", "100"))
+    effective_max_iterations = iterations if iterations is not None else max_dynamic_iterations
+
     logger = MCTSLogger(
         goal=goal,
         initial_state=root.state,
-        iterations=iterations,
+        iterations=effective_max_iterations,
         log_dir=log_dir,
         step=step,
         run_id=run_id,
@@ -327,7 +335,7 @@ def run_mcts(
 
     step_info = f"Step {step} | " if step is not None else ""
     mode_info = (
-        f"max_iter={iterations} | "
+        f"iter={'dynamic (JEV/Noul, cap=' + str(effective_max_iterations) + ')' if iterations is None else iterations} | "
         f"actions={'dynamic (primes <= 13)' if actions_per_node is None else actions_per_node} | "
         f"sim_depth={rollout_depth}"
     )
@@ -336,8 +344,16 @@ def run_mcts(
     print(f"{'='*60}\n")
 
     completed_early = False
-    for i in range(1, iterations + 1):
-        print(f"── Iteration {i}/{iterations} ──────────────────────────────────")
+    i = 0
+    while True:
+        i += 1
+        if i > effective_max_iterations:
+            if iterations is None:
+                print(f"  [mcts] ⚠️ Dynamic search reached safety ceiling of {effective_max_iterations} iterations. Stopping search.")
+            break
+
+        iter_label = f"{i}/{iterations}" if iterations is not None else f"{i} (dynamic)"
+        print(f"── Iteration {iter_label} ──────────────────────────────────")
         logger.emit_iteration_start(i)
 
         # 1. Selection
@@ -355,12 +371,12 @@ def run_mcts(
         _backpropagate(leaf, value, logger)
         print(f"  [backprop] Value {value:.3f} propagated up the tree.\n")
 
-        # 5. Check early completion via Noul
+        # 5. Check completion via JEV / TypeSafe Noul
         if early_stop_noul and i >= 2 and root.children:
             best_so_far = max(root.children, key=lambda c: (c.visits, c.average_value))
             is_done, conf = check_task_completion(goal, best_so_far.state)
             if is_done:
-                print(f"  [noul] 🎯 Task completed / sufficiently refined (confidence={conf:.3f}). Early stopping at iteration {i}.\n")
+                print(f"  [noul/jev] 🎯 JEV determined task completed / sufficiently refined (confidence={conf:.3f}). Search converged at iteration {i}.\n")
                 logger.emit_task_completed(confidence=conf, iteration=i)
                 logger.emit_iteration_end(i)
                 completed_early = True
@@ -548,8 +564,8 @@ def run_closed_loop_agent(
     goal: str,
     initial_state: str,
     *,
-    max_steps: int = 5,
-    iterations_per_step: int = 1,
+    max_steps: int | None = None,
+    iterations_per_step: int | None = None,
     actions_per_node: int | None = None,
     simulation_depth: int | None = None,
     early_stop_noul: bool = True,
@@ -565,8 +581,16 @@ def run_closed_loop_agent(
         2. Execute: Execute ONLY that action in the workspace.
         3. Review: Observe git diff, execution logs, and environment changes.
         4. Adapt: Update real state.
-        5. Assess: Check goal completion via Noul.
+        5. Assess: Check goal completion via JEV / Noul.
     """
+    import itertools
+
+    if max_steps is None and not early_stop_noul:
+        raise ValueError("Cannot disable early_stop_noul when max_steps is set to None (dynamic mode requires early stopping).")
+
+    max_dynamic_steps = int(os.getenv("MCTS_DYNAMIC_MAX_STEPS", "50"))
+    effective_max_steps = max_steps if max_steps is not None else max_dynamic_steps
+
     run_id = datetime.now().strftime("%Y%m%d_%H%M%S")
     agent_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     target_workspace = workspace_dir or os.getenv("MCTS_WORKSPACE_DIR") or agent_root
@@ -575,17 +599,28 @@ def run_closed_loop_agent(
     steps_history: list[dict[str, Any]] = []
     goal_completed = False
 
+    steps_desc = f"Max Steps: {max_steps}" if max_steps is not None else f"Steps: Dynamic (JEV/Noul, cap={effective_max_steps})"
+    iter_desc = f"Iterations/Step: {iterations_per_step}" if iterations_per_step is not None else "Iterations/Step: Dynamic (JEV/Noul)"
+
     print(f"\n{'#'*70}")
     print(f"CLOSED-LOOP MCTS AGENT (Plan -> Choose -> Execute -> Review -> Assess)")
-    print(f"Run ID: {run_id} | Max Steps: {max_steps} | Search Iterations/Step: {iterations_per_step}")
+    print(f"Run ID: {run_id} | {steps_desc} | {iter_desc}")
     print(f"Goal: {goal}")
     print(f"Workspace: {target_workspace}")
     print(f"Logs Dir: {resolved_log_dir}")
     print(f"{'#'*70}\n")
 
-    for step in range(1, max_steps + 1):
+    step = 0
+    while True:
+        step += 1
+        if step > effective_max_steps:
+            if max_steps is None:
+                print(f"\n⚠️ [closed-loop] Dynamic agent reached safety ceiling of {effective_max_steps} steps without completion. Halting execution.\n")
+            break
+
+        step_label = f"{step}/{max_steps}" if max_steps is not None else f"{step} (dynamic)"
         print(f"\n{'*' * 60}")
-        print(f" STEP {step} (Max ceiling: {max_steps} | Dynamic early-stop enabled)")
+        print(f" STEP {step_label} (JEV completion assessment enabled)")
         print(f"{'*' * 60}")
 
         # 1. PLAN & CHOOSE: evaluate candidate actions from current real state
