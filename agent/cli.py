@@ -742,7 +742,6 @@ def visualize(
             requested_path = self.path.partition("?")[0]
             if requested_path in ("/", ""):
                 self.path = "/visualizer.html"
-<<<<<<< HEAD
             if self.path == "/visualizer.html" and visualizer_path and visualizer_path.is_file():
                 if not (serve_dir / "visualizer.html").is_file():
                     self.send_response(200)
@@ -752,11 +751,6 @@ def visualize(
                     self.end_headers()
                     self.wfile.write(content)
                     return
-=======
-            elif requested_path != "/visualizer.html":
-                self.send_error(404)
-                return
->>>>>>> origin/main
             return super().do_GET()
 
         def end_headers(self):
