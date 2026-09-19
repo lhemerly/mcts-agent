@@ -1,0 +1,696 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MCTS Agent Visualizer</title>
+<script src="https://d3js.org/d3.v7.min.js"></script>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;600&family=Inter:wght@300;400;500;600;700&display=swap');
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#080d18;--surface:#0f1623;--surface2:#161f30;--surface3:#1e2a40;
+  --border:#1e3050;--text:#dde4f0;--muted:#4a6080;
+  --amber:#f5a623;--green:#22c55e;--red:#ef4444;
+  --indigo:#818cf8;--blue:#60a5fa;--gold:#ffd700;--purple:#a855f7;
+}
+html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--text);
+  font-family:'Inter',system-ui,sans-serif;font-size:14px}
+
+/* ── Header ──────────────────────────────────────────────────────────── */
+header{
+  display:flex;align-items:center;gap:16px;
+  padding:10px 20px;
+  background:var(--surface);
+  border-bottom:1px solid var(--border);
+  flex-shrink:0;height:52px;
+}
+.logo{display:flex;align-items:center;gap:10px;font-weight:700;font-size:15px;white-space:nowrap}
+.logo-orb{
+  width:30px;height:30px;border-radius:8px;
+  background:linear-gradient(135deg,#3b82f6,#8b5cf6);
+  display:flex;align-items:center;justify-content:center;font-size:16px;
+  box-shadow:0 0 16px rgba(139,92,246,.5);
+}
+.goal-text{
+  flex:1;font-size:11px;color:var(--muted);
+  font-family:'JetBrains Mono',monospace;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+}
+.load-btn{
+  display:flex;align-items:center;gap:6px;
+  padding:7px 14px;border-radius:7px;border:none;
+  background:linear-gradient(135deg,#3b82f6,#8b5cf6);
+  color:#fff;font-size:12px;font-weight:600;cursor:pointer;
+  white-space:nowrap;transition:filter .2s;
+  box-shadow:0 0 12px rgba(139,92,246,.4);
+}
+.load-btn:hover{filter:brightness(1.15)}
+.status-pill{
+  padding:4px 10px;border-radius:20px;font-size:10px;font-weight:600;
+  font-family:'JetBrains Mono',monospace;letter-spacing:.05em;
+  background:var(--surface2);border:1px solid var(--border);
+  white-space:nowrap;
+}
+.status-pill.live{background:rgba(34,197,94,.15);border-color:rgba(34,197,94,.4);color:var(--green)}
+
+/* ── Layout ──────────────────────────────────────────────────────────── */
+.workspace{display:flex;height:calc(100vh - 52px - 58px);overflow:hidden}
+#tree-wrap{flex:1;position:relative;overflow:hidden}
+svg#viz{width:100%;height:100%;display:block}
+
+/* ── Side panel ──────────────────────────────────────────────────────── */
+.side{
+  width:260px;flex-shrink:0;
+  background:var(--surface);border-left:1px solid var(--border);
+  display:flex;flex-direction:column;
+}
+.side-head{
+  padding:10px 14px;border-bottom:1px solid var(--border);
+  font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.1em;
+  color:var(--muted);display:flex;align-items:center;justify-content:space-between;
+}
+.iter-chip{
+  padding:2px 8px;border-radius:12px;font-size:10px;
+  background:var(--surface2);border:1px solid var(--border);
+  color:var(--text);font-family:'JetBrains Mono',monospace;
+}
+.feed{flex:1;overflow-y:auto;padding:8px;display:flex;flex-direction:column;gap:4px;scroll-behavior:smooth}
+.feed::-webkit-scrollbar{width:4px}
+.feed::-webkit-scrollbar-track{background:transparent}
+.feed::-webkit-scrollbar-thumb{background:var(--border);border-radius:2px}
+
+.ev{
+  padding:7px 9px;border-radius:5px;font-size:10px;
+  font-family:'JetBrains Mono',monospace;line-height:1.5;
+  border:1px solid transparent;opacity:.35;transition:opacity .3s,transform .3s;
+  word-break:break-word;
+}
+.ev.cur{opacity:1;transform:translateX(2px)}
+.ev.past{opacity:.6}
+.ev-SELECT{background:rgba(245,166,35,.08);border-color:rgba(245,166,35,.25);color:var(--amber)}
+.ev-EXPAND{background:rgba(96,165,250,.08);border-color:rgba(96,165,250,.25);color:var(--blue)}
+.ev-PASS{background:rgba(34,197,94,.08);border-color:rgba(34,197,94,.25);color:var(--green)}
+.ev-FAIL{background:rgba(239,68,68,.08);border-color:rgba(239,68,68,.25);color:var(--red)}
+.ev-SCORE{background:rgba(168,85,247,.08);border-color:rgba(168,85,247,.25);color:var(--purple)}
+.ev-BACK{background:rgba(129,140,248,.08);border-color:rgba(129,140,248,.25);color:var(--indigo)}
+.ev-DONE{background:rgba(255,215,0,.08);border-color:rgba(255,215,0,.3);color:var(--gold)}
+.ev-INFO{background:var(--surface2);border-color:var(--border);color:var(--muted)}
+
+/* ── Stats ───────────────────────────────────────────────────────────── */
+.stats{
+  padding:10px 14px;border-top:1px solid var(--border);
+  display:grid;grid-template-columns:1fr 1fr;gap:8px;
+}
+.stat{display:flex;flex-direction:column;gap:2px}
+.stat-l{font-size:9px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted)}
+.stat-v{font-family:'JetBrains Mono',monospace;font-size:12px;font-weight:600}
+
+/* ── Legend ──────────────────────────────────────────────────────────── */
+.legend{
+  padding:8px 14px;border-top:1px solid var(--border);
+  display:flex;align-items:center;gap:6px;flex-wrap:wrap;
+}
+.leg-item{display:flex;align-items:center;gap:4px;font-size:9px;color:var(--muted)}
+.leg-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+
+/* ── Controls ────────────────────────────────────────────────────────── */
+.controls{
+  height:58px;padding:0 20px;
+  background:var(--surface);border-top:1px solid var(--border);
+  display:flex;align-items:center;gap:12px;
+}
+.cbtn{
+  width:30px;height:30px;border-radius:6px;border:1px solid var(--border);
+  background:var(--surface2);color:var(--text);cursor:pointer;
+  display:flex;align-items:center;justify-content:center;font-size:13px;
+  transition:background .15s;flex-shrink:0;
+}
+.cbtn:hover{background:var(--surface3)}
+.cbtn.play{
+  width:38px;height:38px;border-radius:50%;border:none;font-size:15px;
+  background:linear-gradient(135deg,#3b82f6,#8b5cf6);
+  box-shadow:0 0 16px rgba(139,92,246,.5);
+}
+.timeline{flex:1;display:flex;flex-direction:column;gap:5px}
+.tl-info{display:flex;justify-content:space-between;font-size:10px;color:var(--muted);font-family:'JetBrains Mono',monospace}
+.track{position:relative;height:4px;background:var(--surface3);border-radius:4px;cursor:pointer}
+.fill{height:100%;border-radius:4px;background:linear-gradient(90deg,#3b82f6,#8b5cf6);transition:width .1s}
+input[type=range].scrub{
+  position:absolute;inset:0;width:100%;height:4px;
+  -webkit-appearance:none;background:transparent;cursor:pointer;margin:0;
+}
+input[type=range].scrub::-webkit-slider-thumb{
+  -webkit-appearance:none;width:12px;height:12px;border-radius:50%;
+  background:#fff;margin-top:-4px;
+  box-shadow:0 0 8px rgba(139,92,246,.9);
+}
+.iter-dots{display:flex;gap:3px;align-items:center;flex-shrink:0}
+.idot{
+  width:5px;height:5px;border-radius:50%;
+  background:var(--surface3);border:1px solid var(--border);
+  transition:all .3s;cursor:pointer;
+}
+.idot.done{background:#3b82f6;border-color:#3b82f6}
+.idot.cur{background:#8b5cf6;border-color:#8b5cf6;box-shadow:0 0 6px #8b5cf6}
+.speed-sel{
+  background:var(--surface2);border:1px solid var(--border);
+  color:var(--text);padding:4px 6px;border-radius:4px;font-size:11px;cursor:pointer;
+}
+.speed-lbl{font-size:10px;color:var(--muted);white-space:nowrap}
+
+/* ── Drop overlay ────────────────────────────────────────────────────── */
+#drop{
+  position:absolute;inset:0;background:var(--bg);z-index:20;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;
+}
+.drop-icon{font-size:72px;opacity:.25;animation:float 3s ease-in-out infinite}
+@keyframes float{0%,100%{transform:translateY(0)}50%{transform:translateY(-10px)}}
+.drop-title{font-size:20px;font-weight:600;color:var(--muted)}
+.drop-sub{font-size:12px;color:var(--muted);opacity:.6}
+.drop-btn{
+  padding:9px 20px;border-radius:8px;border:none;font-size:13px;font-weight:600;
+  background:linear-gradient(135deg,#3b82f6,#8b5cf6);color:#fff;cursor:pointer;
+  box-shadow:0 0 20px rgba(139,92,246,.4);
+}
+
+/* ── Tooltip ─────────────────────────────────────────────────────────── */
+#tip{
+  position:fixed;background:var(--surface);border:1px solid var(--border);
+  border-radius:8px;padding:10px 12px;font-size:11px;
+  font-family:'JetBrains Mono',monospace;max-width:280px;
+  pointer-events:none;z-index:999;display:none;line-height:1.6;
+  box-shadow:0 8px 30px rgba(0,0,0,.6);
+}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo"><div class="logo-orb">🌳</div>MCTS Visualizer</div>
+  <div class="goal-text" id="goal-txt" title="Load or drop any MCTS agent run log (.json)">Load or drop any MCTS run log (.json) to explore reasoning tree</div>
+  <span class="status-pill" id="status-pill">No log loaded</span>
+  <label class="load-btn" for="file-in">📂 Load Log<input type="file" id="file-in" accept=".json" style="display:none"></label>
+</header>
+
+<div class="workspace">
+  <div id="tree-wrap">
+    <div id="drop">
+      <div class="drop-icon">🌳</div>
+      <div class="drop-title">Drop any MCTS log file here</div>
+      <div class="drop-sub">Compatible with all agent run logs (JSON format)</div>
+      <label class="drop-btn" for="file-in">Browse Files</label>
+    </div>
+    <svg id="viz"></svg>
+    <div id="tip"></div>
+  </div>
+  <div class="side">
+    <div class="side-head">
+      <span>Event Feed</span>
+      <span class="iter-chip" id="iter-chip">—</span>
+    </div>
+    <div class="feed" id="feed"></div>
+    <div class="legend">
+      <div class="leg-item"><div class="leg-dot" style="background:#1e3a5f"></div>Unexplored</div>
+      <div class="leg-item"><div class="leg-dot" style="background:#1d4ed8"></div>Low</div>
+      <div class="leg-item"><div class="leg-dot" style="background:#059669"></div>Mid</div>
+      <div class="leg-item"><div class="leg-dot" style="background:#d97706"></div>High</div>
+      <div class="leg-item"><div class="leg-dot" style="background:#dc2626"></div>Peak</div>
+      <div class="leg-item"><div class="leg-dot" style="background:#ffd700;box-shadow:0 0 6px #ffd700"></div>Best</div>
+    </div>
+    <div class="stats">
+      <div class="stat"><span class="stat-l">Nodes</span><span class="stat-v" id="s-nodes">—</span></div>
+      <div class="stat"><span class="stat-l">Pruned</span><span class="stat-v" id="s-pruned">—</span></div>
+      <div class="stat"><span class="stat-l">Best Score</span><span class="stat-v" id="s-best">—</span></div>
+      <div class="stat"><span class="stat-l">Iteration</span><span class="stat-v" id="s-iter">—</span></div>
+    </div>
+  </div>
+</div>
+
+<div class="controls">
+  <button class="cbtn" id="b-first" title="Start [Home]">⏮</button>
+  <button class="cbtn" id="b-prev"  title="Back [←]">◀</button>
+  <button class="cbtn play" id="b-play" title="Play/Pause [Space]">▶</button>
+  <button class="cbtn" id="b-next"  title="Forward [→]">▶</button>
+  <button class="cbtn" id="b-last"  title="End [End]">⏭</button>
+  <button class="cbtn" id="b-fit"   title="Fit to Screen [F]">⛶</button>
+  <div class="timeline">
+    <div class="tl-info">
+      <span id="tl-frame">Frame — / —</span>
+      <span id="tl-iter">Iter — / —</span>
+    </div>
+    <div class="track">
+      <div class="fill" id="tl-fill" style="width:0%"></div>
+      <input type="range" class="scrub" id="scrub" min="0" max="0" value="0">
+    </div>
+  </div>
+  <div class="iter-dots" id="iter-dots"></div>
+  <span class="speed-lbl">Speed</span>
+  <select class="speed-sel" id="speed">
+    <option value="1500">0.5×</option>
+    <option value="750" selected>1×</option>
+    <option value="350">2×</option>
+    <option value="150">4×</option>
+    <option value="60">10×</option>
+  </select>
+</div>
+
+<script>
+// ────────────────────────────────────────────────────────────────────────────
+// State
+// ────────────────────────────────────────────────────────────────────────────
+let events = [], meta = null;
+let frame = 0, playing = false, timer = null;
+let nodes = new Map(); // node_id → {id,parent_id,action,prior,visits,value_sum,state}
+let selPath = [], backPath = [], evalId = null, bestId = null;
+let curIter = 0, pruned = 0;
+
+// ────────────────────────────────────────────────────────────────────────────
+// D3 setup
+// ────────────────────────────────────────────────────────────────────────────
+const svg   = d3.select('#viz');
+const root  = svg.append('g').attr('class','root-g');
+const gEdge = root.append('g').attr('class','edges');
+const gNode = root.append('g').attr('class','nodes');
+const gLbl  = root.append('g').attr('class','lbls');
+const defs  = svg.append('defs');
+
+// Filters (glow)
+function mkGlow(id, dev){
+  const f = defs.append('filter').attr('id',id).attr('x','-60%').attr('y','-60%').attr('width','220%').attr('height','220%');
+  f.append('feGaussianBlur').attr('in','SourceGraphic').attr('stdDeviation',dev).attr('result','b');
+  const m = f.append('feMerge');
+  m.append('feMergeNode').attr('in','b');
+  m.append('feMergeNode').attr('in','SourceGraphic');
+}
+mkGlow('g-amber',5); mkGlow('g-indigo',4); mkGlow('g-gold',7);
+mkGlow('g-green',4); mkGlow('g-orange',5); mkGlow('g-purple',5);
+
+// Zoom
+const zoom = d3.zoom().scaleExtent([.05,5])
+  .on('zoom', e => root.attr('transform', e.transform));
+svg.call(zoom).on('dblclick.zoom',null);
+
+// Color scale score [1..10]
+const scoreCol = d3.scaleLinear()
+  .domain([1,3,5,7,10])
+  .range(['#1e3a5f','#1d4ed8','#059669','#d97706','#dc2626'])
+  .interpolate(d3.interpolateHcl);
+
+// ────────────────────────────────────────────────────────────────────────────
+// Build D3 hierarchy & render
+// ────────────────────────────────────────────────────────────────────────────
+function buildH(){
+  if(!nodes.size) return null;
+  let rid=null;
+  for(const [id,n] of nodes) if(!n.parent_id){rid=id;break;}
+  if(!rid) return null;
+  function rec(id){
+    const n=nodes.get(id); if(!n) return null;
+    const ch=[...nodes.values()].filter(x=>x.parent_id===id).map(x=>rec(x.id)).filter(Boolean);
+    return {...n,children:ch};
+  }
+  return d3.hierarchy(rec(rid));
+}
+
+function nodeR(d){
+  const v=d.data.visits||0;
+  return (d.data.parent_id?8:13) + Math.min(v,12)*.8;
+}
+function nodeColor(d){
+  const id=d.data.id;
+  if(id===bestId) return '#ffd700';
+  if(id===evalId) return '#a855f7';
+  if(selPath.includes(id)) return '#f5a623';
+  if(backPath.includes(id)) return '#818cf8';
+  const v=d.data.visits||0;
+  if(v>0) return scoreCol(d.data.value_sum/v);
+  return '#1e3a5f';
+}
+function nodeFilter(d){
+  const id=d.data.id;
+  if(id===bestId) return 'url(#g-gold)';
+  if(id===evalId) return 'url(#g-purple)';
+  if(selPath.includes(id)) return 'url(#g-amber)';
+  if(backPath.includes(id)) return 'url(#g-indigo)';
+  return null;
+}
+function edgeColor(d){
+  const tid=d.target.data.id;
+  if(selPath.includes(tid)) return '#f5a623';
+  if(backPath.includes(tid)) return '#818cf8';
+  return '#1e3050';
+}
+function edgeW(d){
+  const tid=d.target.data.id;
+  return (selPath.includes(tid)||backPath.includes(tid))?2.5:1;
+}
+
+let firstRender=true;
+function render(animate=true){
+  const h=buildH(); if(!h) return;
+  const el=document.getElementById('tree-wrap');
+  const W=el.clientWidth, H=el.clientHeight;
+  const layout=d3.tree().nodeSize([55,200]).separation((a,b)=>a.parent===b.parent?1.1:1.6);
+  layout(h);
+  const allN=h.descendants(), allL=h.links();
+  const dur=animate?500:0;
+  const link=d3.linkHorizontal().x(d=>d.y).y(d=>d.x);
+
+  // ── Edges
+  const es=gEdge.selectAll('.edge').data(allL,d=>d.target.data.id);
+  es.enter().append('path').attr('class','edge')
+    .attr('fill','none').attr('stroke-linecap','round')
+    .attr('d',d=>link({source:d.source,target:d.source}))
+    .attr('opacity',0)
+    .merge(es).transition().duration(dur)
+    .attr('d',link)
+    .attr('stroke',edgeColor)
+    .attr('stroke-width',edgeW)
+    .attr('opacity',d=>.25+(d.target.data.prior||0)*.75);
+  es.exit().remove();
+
+  // ── Nodes
+  const ns=gNode.selectAll('.nd').data(allN,d=>d.data.id);
+  const ne=ns.enter().append('g').attr('class','nd')
+    .attr('transform',d=>`translate(${d.parent?d.parent.y:d.y},${d.parent?d.parent.x:d.x})`)
+    .style('opacity',0).style('cursor','pointer');
+  ne.append('circle');
+  ne.on('mouseover',(ev,d)=>{
+    const n=d.data, avg=n.visits>0?(n.value_sum/n.visits).toFixed(2):'—';
+    const t=document.getElementById('tip');
+    t.innerHTML=`<b style="color:#dde4f0;word-break:break-word">${n.action||'[root]'}</b><br>
+      <span style="color:var(--muted)">ID:</span> ${n.id}<br>
+      <span style="color:var(--muted)">Visits:</span> ${n.visits} &nbsp;
+      <span style="color:var(--muted)">Avg:</span> ${avg}/10<br>
+      <span style="color:var(--muted)">Prior:</span> ${(n.prior||0).toFixed(3)}<br>
+      ${n.state?`<span style="color:var(--muted);font-size:9px">${n.state.slice(0,120)}…</span>`:''}`;
+    t.style.display='block';
+    t.style.left=(ev.clientX+14)+'px'; t.style.top=(ev.clientY+14)+'px';
+  }).on('mousemove',(ev)=>{
+    const t=document.getElementById('tip');
+    t.style.left=(ev.clientX+14)+'px'; t.style.top=(ev.clientY+14)+'px';
+  }).on('mouseout',()=>{ document.getElementById('tip').style.display='none'; });
+  ne.transition().duration(dur).style('opacity',1)
+    .attr('transform',d=>`translate(${d.y},${d.x})`);
+
+  const nm=ne.merge(ns);
+  nm.transition().duration(dur).attr('transform',d=>`translate(${d.y},${d.x})`);
+  nm.select('circle').transition().duration(dur)
+    .attr('r',nodeR)
+    .attr('fill',nodeColor)
+    .attr('stroke',d=>selPath.includes(d.data.id)||d.data.id===evalId?'rgba(255,255,255,.5)':'rgba(255,255,255,.12)')
+    .attr('stroke-width',d=>selPath.includes(d.data.id)||d.data.id===bestId?2.5:1)
+    .attr('filter',nodeFilter);
+  ns.exit().transition().duration(dur).style('opacity',0).remove();
+
+  // ── Labels
+  const ls=gLbl.selectAll('.lbl').data(allN,d=>d.data.id);
+  const le=ls.enter().append('g').attr('class','lbl')
+    .attr('transform',d=>`translate(${d.parent?d.parent.y:d.y},${d.parent?d.parent.x:d.x})`)
+    .style('opacity',0).style('pointer-events','none');
+
+  le.append('text').attr('class','lbl-score')
+    .attr('text-anchor','middle').attr('dy','0.35em')
+    .attr('fill','rgba(255,255,255,.9)').attr('font-weight','700')
+    .attr('font-family','JetBrains Mono,monospace');
+
+  le.append('text').attr('class','lbl-action')
+    .attr('text-anchor','middle')
+    .attr('fill','#6a8090').attr('font-family','JetBrains Mono,monospace');
+
+  le.transition().duration(dur).style('opacity',1).attr('transform',d=>`translate(${d.y},${d.x})`);
+  const lm=le.merge(ls);
+  lm.transition().duration(dur).attr('transform',d=>`translate(${d.y},${d.x})`);
+
+  lm.select('.lbl-score').transition().duration(dur)
+    .attr('font-size',d=>nodeR(d)>12?'9px':'7px')
+    .text(d=>d.data.visits>0?(d.data.value_sum/d.data.visits).toFixed(1):'');
+
+  lm.select('.lbl-action').transition().duration(dur)
+    .attr('y',d=>nodeR(d)+8)
+    .attr('font-size','8px')
+    .text(d=>trunc(d.data.action||'root',26));
+
+  ls.exit().remove();
+
+  if(firstRender){firstRender=false;fitTree(h,W,H);}
+}
+
+function fitTree(h,W,H){
+  const ns=h.descendants();
+  if(!ns.length) return;
+  const xs=ns.map(d=>d.y), ys=ns.map(d=>d.x);
+  const x0=Math.min(...xs),x1=Math.max(...xs),y0=Math.min(...ys),y1=Math.max(...ys);
+  const s=Math.min(W/(x1-x0+220),H/(y1-y0+120),.85)*0.88;
+  const tx=W/2-s*(x0+x1)/2, ty=H/2-s*(y0+y1)/2;
+  svg.transition().duration(700).call(zoom.transform,d3.zoomIdentity.translate(tx,ty).scale(s));
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// Event application
+// ────────────────────────────────────────────────────────────────────────────
+function applyEv(ev){
+  switch(ev.type){
+    case 'init':
+      nodes.set(ev.node_id,{id:ev.node_id,parent_id:null,action:null,prior:0,
+        visits:0,value_sum:0,state:ev.state});
+      break;
+    case 'iteration_start':
+      curIter=ev.i; selPath=[]; backPath=[]; evalId=null;
+      break;
+    case 'select':
+      selPath=ev.path;
+      break;
+    case 'new_node':
+      nodes.set(ev.node_id,{id:ev.node_id,parent_id:ev.parent_id,action:ev.action,
+        prior:ev.prior,visits:0,value_sum:0,state:ev.state||''});
+      break;
+    case 'eval':
+      evalId=ev.node_id;
+      break;
+    case 'backprop_start':
+      backPath=ev.path; selPath=[];
+      break;
+    case 'node_update':
+      if(nodes.has(ev.node_id)){
+        const n=nodes.get(ev.node_id);
+        n.visits=ev.visits; n.value_sum=ev.value_sum;
+      }
+      break;
+    case 'iteration_end':
+      selPath=[]; backPath=[]; evalId=null;
+      break;
+    case 'complete':
+      bestId=ev.best_node_id; selPath=[]; backPath=[]; evalId=null;
+      break;
+  }
+}
+
+function evLabel(ev){
+  switch(ev.type){
+    case 'iteration_start': return ['ev-SELECT','🔄',`Iteration ${ev.i} started`];
+    case 'select':          return ['ev-SELECT','🎯',`PUCT select  depth:${ev.path.length}`];
+    case 'candidates':      return ['ev-EXPAND','💡',`Proposed ${ev.candidates.length} actions`];
+    case 'noul':
+      return ev.valid
+        ? ['ev-PASS','✓',`${trunc(ev.action,32)}  (${ev.confidence.toFixed(2)})`]
+        : ['ev-FAIL','✗',`${trunc(ev.action,32)}  (${ev.confidence.toFixed(2)})`];
+    case 'new_node':        return ['ev-EXPAND','🌿',trunc(ev.action,38)];
+    case 'eval':            return ['ev-SCORE','🔬',`Evaluating  ${ev.node_id}`];
+    case 'score':           return ['ev-SCORE','⚡',`Score: ${ev.value.toFixed(2)} / 10`];
+    case 'backprop_start':  return ['ev-BACK','⬆','Backpropagating value'];
+    case 'node_update':     return ['ev-BACK','·',`${ev.node_id}  v=${ev.visits}  Σ=${ev.value_sum.toFixed(2)}`];
+    case 'iteration_end':   return ['ev-INFO','—',`Iteration ${ev.i} done`];
+    case 'complete':        return ['ev-DONE','🏆',`Best: ${trunc(ev.best_action,34)}`];
+    case 'init':            return ['ev-INFO','○','Root node created'];
+    default:                return ['ev-INFO','·',ev.type];
+  }
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// Frame processing
+// ────────────────────────────────────────────────────────────────────────────
+function goto(f){
+  f=Math.max(0,Math.min(f,events.length-1));
+  frame=f;
+
+  // Rebuild state from scratch
+  nodes.clear(); selPath=[]; backPath=[]; evalId=null;
+  bestId=null; curIter=0; pruned=0;
+  for(let i=0;i<=f;i++){
+    applyEv(events[i]);
+    if(events[i].type==='noul'&&!events[i].valid) pruned++;
+  }
+
+  // Render
+  render(true);
+  updateFeed(f);
+  updateUI(f);
+}
+
+function updateFeed(f){
+  const feed=document.getElementById('feed');
+  const start=Math.max(0,f-25);
+  let html='';
+  for(let i=start;i<=f;i++){
+    const ev=events[i];
+    const [cls,icon,txt]=evLabel(ev);
+    const age=f-i;
+    const klass=age===0?'ev cur':age<5?'ev past':'ev';
+    html+=`<div class="${klass} ${cls}">${icon} ${txt}</div>`;
+  }
+  feed.innerHTML=html;
+  feed.lastElementChild?.scrollIntoView({block:'nearest'});
+  document.getElementById('iter-chip').textContent=`iter ${curIter}/${meta?.iterations||'?'}`;
+}
+
+function updateUI(f){
+  const total=events.length;
+  const pct=total>1?(f/(total-1))*100:0;
+  document.getElementById('tl-fill').style.width=pct+'%';
+  document.getElementById('scrub').value=f;
+  document.getElementById('tl-frame').textContent=`Frame ${f+1} / ${total}`;
+  document.getElementById('tl-iter').textContent=`Iter ${curIter} / ${meta?.iterations||'?'}`;
+  document.getElementById('b-play').textContent=playing?'⏸':'▶';
+
+  // Best score
+  let bs=0;
+  for(const n of nodes.values()) if(n.visits>0) bs=Math.max(bs,n.value_sum/n.visits);
+  document.getElementById('s-nodes').textContent=nodes.size;
+  document.getElementById('s-pruned').textContent=pruned;
+  document.getElementById('s-best').textContent=bs>0?bs.toFixed(2)+'/10':'—';
+  document.getElementById('s-iter').textContent=curIter+(meta?'/'+meta.iterations:'');
+
+  // Dots
+  const dots=document.querySelectorAll('.idot');
+  dots.forEach((d,i)=>{
+    d.classList.remove('done','cur');
+    if(i+1<curIter) d.classList.add('done');
+    else if(i+1===curIter) d.classList.add('cur');
+  });
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// Playback
+// ────────────────────────────────────────────────────────────────────────────
+function play(){
+  if(playing){pause();return;}
+  if(frame>=events.length-1){goto(0);}
+  playing=true;
+  document.getElementById('b-play').textContent='⏸';
+  tick();
+}
+function pause(){
+  playing=false;
+  if(timer){clearTimeout(timer);timer=null;}
+  document.getElementById('b-play').textContent='▶';
+}
+function tick(){
+  if(!playing) return;
+  if(frame>=events.length-1){pause();return;}
+  goto(frame+1);
+  const spd=parseInt(document.getElementById('speed').value);
+  timer=setTimeout(tick,spd);
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// Load log
+// ────────────────────────────────────────────────────────────────────────────
+function loadLog(data, fileName){
+  meta = data.meta || {};
+  events = Array.isArray(data) ? data : (data.events || []);
+  frame = 0; playing = false; firstRender = true;
+  nodes.clear(); selPath = []; backPath = []; evalId = null; bestId = null;
+
+  // Extract prompt/goal dynamically from any log format
+  const promptText = (meta && (meta.goal || meta.prompt || meta.task || meta.query || meta.instruction || meta.user_prompt || meta.description)) ||
+                     (data && (data.goal || data.prompt || data.task)) ||
+                     (events.length && events[0]?.state ? events[0].state : '') || '';
+
+  const goalEl = document.getElementById('goal-txt');
+  if (promptText) {
+    goalEl.innerHTML = `<span style="color:var(--indigo);font-weight:600">Goal:</span> <span style="color:var(--text)">${promptText.replace(/</g,'&lt;').replace(/>/g,'&gt;')}</span>`;
+    goalEl.title = promptText;
+  } else if (fileName) {
+    goalEl.innerHTML = `<span style="color:var(--indigo);font-weight:600">Log:</span> <span style="color:var(--text)">${fileName}</span>`;
+    goalEl.title = fileName;
+  } else {
+    goalEl.textContent = 'MCTS Reasoning Tree';
+    goalEl.title = 'MCTS Reasoning Tree';
+  }
+
+  document.getElementById('drop').style.display = 'none';
+  const pill = document.getElementById('status-pill');
+  const fileLabel = fileName ? trunc(fileName, 24) : 'Ready';
+  pill.textContent = `Loaded · ${fileLabel}`;
+  pill.className = 'status-pill live';
+  document.getElementById('scrub').max = Math.max(0, events.length - 1);
+
+  // Build iteration dots dynamically
+  let n = meta.iterations;
+  if (!n) {
+    const iterEvents = events.filter(e => e.type === 'iteration_start').map(e => e.i || 0);
+    n = iterEvents.length ? Math.max(...iterEvents) : 10;
+  }
+  document.getElementById('iter-dots').innerHTML =
+    Array.from({length:n},(_,i)=>`<div class="idot" title="Jump to Iteration ${i+1}" onclick="gotoIter(${i+1})"></div>`).join('');
+
+  goto(0);
+}
+
+function gotoIter(it){
+  const idx = events.findIndex(e => e.type === 'iteration_start' && e.i === it);
+  if(idx >= 0){ pause(); goto(idx); }
+}
+
+function fitCurrentTree(){
+  const h = buildH();
+  if(h){
+    const el = document.getElementById('tree-wrap');
+    fitTree(h, el.clientWidth, el.clientHeight);
+  }
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// Event listeners
+// ────────────────────────────────────────────────────────────────────────────
+document.getElementById('file-in').onchange=e=>{
+  const f=e.target.files[0]; if(!f) return;
+  const r=new FileReader();
+  r.onload=ev=>{try{loadLog(JSON.parse(ev.target.result), f.name);}catch(err){alert('Bad JSON: '+err.message);}};
+  r.readAsText(f);
+};
+['dragover','dragenter'].forEach(t=>document.addEventListener(t,e=>{e.preventDefault();}));
+document.addEventListener('drop',e=>{
+  e.preventDefault();
+  const f=e.dataTransfer?.files[0]; if(!f) return;
+  const r=new FileReader();
+  r.onload=ev=>{try{loadLog(JSON.parse(ev.target.result), f.name);}catch(err){alert('Bad JSON: '+err.message);}};
+  r.readAsText(f);
+});
+
+document.getElementById('b-play').onclick=play;
+document.getElementById('b-next').onclick=()=>{pause();goto(frame+1);};
+document.getElementById('b-prev').onclick=()=>{pause();goto(frame-1);};
+document.getElementById('b-first').onclick=()=>{pause();goto(0);};
+document.getElementById('b-last').onclick=()=>{pause();goto(events.length-1);};
+document.getElementById('b-fit').onclick=fitCurrentTree;
+document.getElementById('scrub').oninput=e=>{pause();goto(parseInt(e.target.value));};
+
+document.addEventListener('keydown',e=>{
+  if(e.target.tagName==='INPUT'||e.target.tagName==='SELECT') return;
+  if(e.key===' '){e.preventDefault();play();}
+  else if(e.key==='ArrowRight'){pause();goto(frame+1);}
+  else if(e.key==='ArrowLeft'){pause();goto(frame-1);}
+  else if(e.key==='Home'){pause();goto(0);}
+  else if(e.key==='End'){pause();goto(events.length-1);}
+  else if(e.key==='f'||e.key==='F'){fitCurrentTree();}
+});
+
+// ── Utility ──────────────────────────────────────────────────────────────────
+function trunc(s,n){if(!s)return'';return s.length>n?s.slice(0,n)+'…':s;}
+</script>
+</body>
+</html>
+

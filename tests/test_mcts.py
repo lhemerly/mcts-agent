@@ -190,5 +190,54 @@ class TestMCTSLoop(unittest.TestCase):
             self.assertEqual(len(summary["steps"]), 1)
 
 
+class TestProposeActions(unittest.TestCase):
+    def test_propose_actions_mock_mode(self):
+        from agent.mcts import _propose_actions
+        from unittest.mock import patch
+        with patch("agent.mcts._is_mock_llm", return_value=True):
+            actions = _propose_actions("Current state", "My Goal", n=3)
+            self.assertEqual(len(actions), 3)
+
+    def test_propose_actions_iterative_calls_and_model(self):
+        from agent.mcts import _propose_actions
+        from unittest.mock import patch, MagicMock
+        with patch("agent.mcts._is_mock_llm", return_value=False), \
+             patch("agent.mcts.subprocess.run") as mock_run, \
+             patch.dict("os.environ", {"AGY_PROPOSAL_MODEL": "custom-proposal-model"}):
+
+            mock_run.side_effect = [
+                MagicMock(returncode=0, stdout="1. First creative strategy\n"),
+                MagicMock(returncode=0, stdout="Second novel angle\n"),
+                MagicMock(returncode=0, stdout="Third alternative method\n"),
+            ]
+
+            actions = _propose_actions("Sample state", "Sample goal", n=3)
+
+            self.assertEqual(len(actions), 3)
+            self.assertEqual(actions, [
+                "First creative strategy",
+                "Second novel angle",
+                "Third alternative method",
+            ])
+            self.assertEqual(mock_run.call_count, 3)
+
+            first_cmd = mock_run.call_args_list[0][0][0]
+            self.assertEqual(first_cmd[0], "agy")
+            self.assertEqual(first_cmd[1], "--model")
+            self.assertEqual(first_cmd[2], "custom-proposal-model")
+            first_prompt = first_cmd[4]
+            self.assertIn("(No actions proposed yet for this expansion)", first_prompt)
+
+            second_cmd = mock_run.call_args_list[1][0][0]
+            second_prompt = second_cmd[4]
+            self.assertIn("First creative strategy", second_prompt)
+
+            third_cmd = mock_run.call_args_list[2][0][0]
+            third_prompt = third_cmd[4]
+            self.assertIn("First creative strategy", third_prompt)
+            self.assertIn("Second novel angle", third_prompt)
+
+
 if __name__ == "__main__":
     unittest.main()
+

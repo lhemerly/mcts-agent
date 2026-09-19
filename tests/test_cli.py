@@ -49,6 +49,7 @@ class TestCLI(unittest.TestCase):
         self.assertIn("--iterations", output)
         self.assertIn("--sim-depth", output)
         self.assertIn("--actions", output)
+        self.assertIn("--proposal-model", output)
         self.assertIn("--mock", output)
         self.assertIn("--no-early-stop", output)
         self.assertIn("--no-execute", output)
@@ -114,3 +115,44 @@ class TestCLI(unittest.TestCase):
         self.assertEqual(result.exit_code, 0, msg=result.output)
         data = json.loads(result.output.strip())
         self.assertIn("steps", data)
+
+    def test_proposal_model_cli_flag(self):
+        result = runner.invoke(
+            app,
+            [
+                "run",
+                "--mock",
+                "--goal", "Custom Model Goal",
+                "--proposal-model", "test-custom-model",
+                "--max-steps", "1",
+                "--iterations", "1",
+                "--no-execute",
+                "--json",
+            ],
+        )
+        self.assertEqual(result.exit_code, 0, msg=result.output)
+        self.assertEqual(os.environ.get("AGY_PROPOSAL_MODEL"), "test-custom-model")
+
+    def test_proposal_model_envvar(self):
+        old_env = os.environ.get("AGY_PROPOSAL_MODEL")
+        try:
+            os.environ["AGY_PROPOSAL_MODEL"] = "env-specified-model"
+            result = runner.invoke(
+                app,
+                [
+                    "run",
+                    "--mock",
+                    "--goal", "Env Model Goal",
+                    "--max-steps", "1",
+                    "--iterations", "1",
+                    "--no-execute",
+                    "--json",
+                ],
+            )
+            self.assertEqual(result.exit_code, 0, msg=result.output)
+            self.assertEqual(os.environ.get("AGY_PROPOSAL_MODEL"), "env-specified-model")
+        finally:
+            if old_env is not None:
+                os.environ["AGY_PROPOSAL_MODEL"] = old_env
+            else:
+                os.environ.pop("AGY_PROPOSAL_MODEL", None)

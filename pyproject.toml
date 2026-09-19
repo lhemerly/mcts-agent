@@ -58,6 +58,9 @@ mcts-agent = "agent.cli:app"
 where = ["."]
 include = ["agent*"]
 
+[tool.setuptools.package-data]
+agent = ["*.html"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = ["test_*.py"]
