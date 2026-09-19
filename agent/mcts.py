@@ -37,7 +37,7 @@ def _is_mock_llm() -> bool:
     return os.getenv("USE_MOCK_PRIMITIVES", "false").lower() in ("1", "true", "yes")
 
 _AGY_MODEL = os.getenv("AGY_MODEL", "gemini-3.8-flash-medium")
-_DEFAULT_PROPOSAL_MODEL = "gemini-3.8-flash-low"
+_DEFAULT_PROPOSAL_MODEL = "gemini-3.6-flash-low"
 _AGY_PROPOSAL_MODEL = os.getenv("AGY_PROPOSAL_MODEL", _DEFAULT_PROPOSAL_MODEL)
 
 _MOCK_ACTION_POOL: list[str] = [
