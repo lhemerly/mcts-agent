@@ -26,6 +26,8 @@ from pathlib import Path
 from typing import Any, Optional
 
 from dotenv import load_dotenv
+
+load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
@@ -345,9 +347,9 @@ def run(
             err_console.print(f"[bold red]Execution error:[/bold red] {exc}")
             raise typer.Exit(code=1)
 
-    summary_file = os.path.join("logs", f"run_{summary.get('run_id')}_summary.json")
-    if os.path.exists(summary_file):
-        summary["summary_file"] = os.path.abspath(summary_file)
+    summary_file = Path(__file__).resolve().parent.parent / "logs" / f"run_{summary.get('run_id')}_summary.json"
+    if summary_file.exists():
+        summary["summary_file"] = str(summary_file.resolve())
 
     if is_json:
         sys.stdout.write(json.dumps(summary, indent=2, default=str) + "\n")
@@ -737,8 +739,10 @@ def visualize(
             super().__init__(*args, directory=str(serve_dir), **kwargs)
 
         def do_GET(self):
-            if self.path in ("/", ""):
+            requested_path = self.path.partition("?")[0]
+            if requested_path in ("/", ""):
                 self.path = "/visualizer.html"
+<<<<<<< HEAD
             if self.path == "/visualizer.html" and visualizer_path and visualizer_path.is_file():
                 if not (serve_dir / "visualizer.html").is_file():
                     self.send_response(200)
@@ -748,10 +752,14 @@ def visualize(
                     self.end_headers()
                     self.wfile.write(content)
                     return
+=======
+            elif requested_path != "/visualizer.html":
+                self.send_error(404)
+                return
+>>>>>>> origin/main
             return super().do_GET()
 
         def end_headers(self):
-            self.send_header("Access-Control-Allow-Origin", "*")
             self.send_header("Cache-Control", "no-cache")
             super().end_headers()
 
