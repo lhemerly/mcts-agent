@@ -310,10 +310,17 @@ def run_mcts(
     -------
     (best_child, log_path) — best immediate action node + path to the JSON log.
     """
+    if iterations is None and not early_stop_noul:
+        raise ValueError("Cannot disable early_stop_noul when iterations is set to None (dynamic mode requires early stopping).")
+
+    # Safety ceiling for dynamic mode to prevent unbounded loops/API consumption
+    max_dynamic_iterations = int(os.getenv("MCTS_DYNAMIC_MAX_ITERATIONS", "100"))
+    effective_max_iterations = iterations if iterations is not None else max_dynamic_iterations
+
     logger = MCTSLogger(
         goal=goal,
         initial_state=root.state,
-        iterations=iterations or 0,
+        iterations=effective_max_iterations,
         log_dir=log_dir,
         step=step,
         run_id=run_id,
@@ -328,7 +335,7 @@ def run_mcts(
 
     step_info = f"Step {step} | " if step is not None else ""
     mode_info = (
-        f"iter={'dynamic (JEV/Noul)' if iterations is None else iterations} | "
+        f"iter={'dynamic (JEV/Noul, cap=' + str(effective_max_iterations) + ')' if iterations is None else iterations} | "
         f"actions={'dynamic (primes <= 13)' if actions_per_node is None else actions_per_node} | "
         f"sim_depth={rollout_depth}"
     )
@@ -340,7 +347,9 @@ def run_mcts(
     i = 0
     while True:
         i += 1
-        if iterations is not None and i > iterations:
+        if i > effective_max_iterations:
+            if iterations is None:
+                print(f"  [mcts] ⚠️ Dynamic search reached safety ceiling of {effective_max_iterations} iterations. Stopping search.")
             break
 
         iter_label = f"{i}/{iterations}" if iterations is not None else f"{i} (dynamic)"
@@ -576,6 +585,12 @@ def run_closed_loop_agent(
     """
     import itertools
 
+    if max_steps is None and not early_stop_noul:
+        raise ValueError("Cannot disable early_stop_noul when max_steps is set to None (dynamic mode requires early stopping).")
+
+    max_dynamic_steps = int(os.getenv("MCTS_DYNAMIC_MAX_STEPS", "50"))
+    effective_max_steps = max_steps if max_steps is not None else max_dynamic_steps
+
     run_id = datetime.now().strftime("%Y%m%d_%H%M%S")
     agent_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     target_workspace = workspace_dir or os.getenv("MCTS_WORKSPACE_DIR") or agent_root
@@ -584,7 +599,7 @@ def run_closed_loop_agent(
     steps_history: list[dict[str, Any]] = []
     goal_completed = False
 
-    steps_desc = f"Max Steps: {max_steps}" if max_steps is not None else "Steps: Dynamic (JEV/Noul)"
+    steps_desc = f"Max Steps: {max_steps}" if max_steps is not None else f"Steps: Dynamic (JEV/Noul, cap={effective_max_steps})"
     iter_desc = f"Iterations/Step: {iterations_per_step}" if iterations_per_step is not None else "Iterations/Step: Dynamic (JEV/Noul)"
 
     print(f"\n{'#'*70}")
@@ -598,7 +613,9 @@ def run_closed_loop_agent(
     step = 0
     while True:
         step += 1
-        if max_steps is not None and step > max_steps:
+        if step > effective_max_steps:
+            if max_steps is None:
+                print(f"\n⚠️ [closed-loop] Dynamic agent reached safety ceiling of {effective_max_steps} steps without completion. Halting execution.\n")
             break
 
         step_label = f"{step}/{max_steps}" if max_steps is not None else f"{step} (dynamic)"
