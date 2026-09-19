@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import contextlib
 import http.server
+import importlib.resources
 import json
 import os
 import sys
@@ -29,6 +30,14 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 import typer
+
+# Ensure environment variables (.env) are loaded early for Typer option defaults
+_repo_root = Path(__file__).resolve().parent.parent
+_env_path = _repo_root / ".env"
+if _env_path.exists():
+    load_dotenv(str(_env_path))
+else:
+    load_dotenv()
 
 from agent.mcts import (
     adapt_state,
@@ -107,6 +116,7 @@ def _render_banner(
     max_steps: int,
     iterations: int,
     workspace: str,
+    proposal_model: Optional[str] = None,
 ) -> None:
     mode_text = (
         "[bold yellow]MOCK (No external APIs)[/bold yellow]"
@@ -120,6 +130,8 @@ def _render_banner(
         f"[bold]Max Steps:[/bold] {max_steps}  |  [bold]Iterations/Step:[/bold] {iterations}\n"
         f"[bold]Workspace:[/bold] [dim]{workspace}[/dim]"
     )
+    if proposal_model:
+        content += f"\n[bold]Proposal Model:[/bold] [dim]{proposal_model}[/dim]"
     console.print(Panel(content, title="[bold cyan]MCTS Agent[/bold cyan]", border_style="cyan"))
 
 
@@ -212,6 +224,12 @@ def run(
     workspace: Optional[str] = typer.Option(
         None, "--workspace", "-w", help="Working directory for agent execution."
     ),
+    proposal_model: str = typer.Option(
+        os.getenv("AGY_PROPOSAL_MODEL", "gemini-3.8-flash-low"),
+        "--proposal-model",
+        envvar="AGY_PROPOSAL_MODEL",
+        help="AI model for generating candidate action proposals (default: gemini-3.8-flash-low).",
+    ),
     max_steps: int = typer.Option(
         int(os.getenv("MCTS_MAX_STEPS", "5")),
         "--max-steps",
@@ -271,6 +289,8 @@ def run(
     console, err_console = _create_consoles(is_no_color)
 
     _setup_env(mock=mock)
+    if proposal_model:
+        os.environ["AGY_PROPOSAL_MODEL"] = proposal_model
     mock_mode = os.getenv("USE_MOCK_PRIMITIVES", "false").lower() in ("1", "true", "yes")
 
     if not mock_mode and not os.getenv("TYPESAFE_API_KEY"):
@@ -295,6 +315,7 @@ def run(
             max_steps=max_steps,
             iterations=iterations,
             workspace=resolved_workspace,
+            proposal_model=proposal_model,
         )
 
     try:
@@ -369,6 +390,12 @@ def demo(
     workspace: Optional[str] = typer.Option(
         None, "--workspace", "-w", help="Working directory for agent execution."
     ),
+    proposal_model: str = typer.Option(
+        os.getenv("AGY_PROPOSAL_MODEL", "gemini-3.8-flash-low"),
+        "--proposal-model",
+        envvar="AGY_PROPOSAL_MODEL",
+        help="AI model for generating candidate action proposals (default: gemini-3.8-flash-low).",
+    ),
     mock: bool = typer.Option(
         False, "--mock", help="Run in mock mode without calling external APIs."
     ),
@@ -412,6 +439,7 @@ def demo(
         mock=mock,
         no_early_stop=no_early_stop,
         no_execute=no_execute,
+        proposal_model=proposal_model,
         json_output=json_output,
         quiet=quiet,
         no_color=no_color,
@@ -459,6 +487,23 @@ def interactive(
     workspace: Optional[str] = typer.Option(
         None, "--workspace", "-w", help="Working directory for agent execution."
     ),
+    proposal_model: str = typer.Option(
+        os.getenv("AGY_PROPOSAL_MODEL", "gemini-3.8-flash-low"),
+        "--proposal-model",
+        envvar="AGY_PROPOSAL_MODEL",
+        help="AI model for generating candidate action proposals (default: gemini-3.8-flash-low).",
+    ),
+    json_output: bool = typer.Option(
+        False,
+        "--json",
+        help="Output clean machine-parseable JSON summary without ANSI escape codes.",
+    ),
+    quiet: bool = typer.Option(
+        False,
+        "--quiet",
+        "-q",
+        help="Quiet mode: suppress informational messages and progress banners.",
+    ),
     no_color: bool = typer.Option(
         False,
         "--no-color",
@@ -466,9 +511,24 @@ def interactive(
     ),
 ):
     """Interactive step-by-step MCTS agent with human-in-the-loop control."""
-    is_no_color = no_color or ctx.obj.get("no_color", False)
+    is_json = json_output or (ctx.obj and ctx.obj.get("json", False))
+    is_quiet = quiet or (ctx.obj and ctx.obj.get("quiet", False))
+    if is_json:
+        raise typer.BadParameter(
+            "Interactive mode requires a terminal and cannot be run with --json.",
+            param_hint="--json",
+        )
+    if is_quiet:
+        raise typer.BadParameter(
+            "Interactive mode requires a terminal and cannot be run with --quiet.",
+            param_hint="--quiet",
+        )
+
+    is_no_color = no_color or (ctx.obj and ctx.obj.get("no_color", False))
     console, _ = _create_consoles(is_no_color)
     _setup_env(mock=mock)
+    if proposal_model:
+        os.environ["AGY_PROPOSAL_MODEL"] = proposal_model
     mock_mode = os.getenv("USE_MOCK_PRIMITIVES", "false").lower() in ("1", "true", "yes")
 
     if not mock_mode and not os.getenv("TYPESAFE_API_KEY"):
@@ -629,19 +689,38 @@ def visualize(
     is_no_color = no_color or ctx.obj.get("no_color", False)
     console, _ = _create_consoles(is_no_color)
 
+    visualizer_path: Optional[Path] = None
+    try:
+        resource = importlib.resources.files("agent") / "visualizer.html"
+        candidate = Path(str(resource))
+        if candidate.is_file():
+            visualizer_path = candidate
+    except Exception:
+        visualizer_path = None
+
     if directory:
         serve_dir = directory.resolve()
+        if (serve_dir / "visualizer.html").is_file():
+            visualizer_path = serve_dir / "visualizer.html"
     else:
         repo_root = Path(__file__).resolve().parent.parent
         if (Path.cwd() / "visualizer.html").exists():
             serve_dir = Path.cwd().resolve()
+            visualizer_path = visualizer_path or (serve_dir / "visualizer.html")
         elif (repo_root / "visualizer.html").exists():
             serve_dir = repo_root
+            visualizer_path = visualizer_path or (serve_dir / "visualizer.html")
         else:
             serve_dir = Path.cwd().resolve()
 
-    visualizer_path = serve_dir / "visualizer.html"
-    if not visualizer_path.exists():
+    if visualizer_path is None or not visualizer_path.exists():
+        repo_root = Path(__file__).resolve().parent.parent
+        if (Path.cwd() / "visualizer.html").exists():
+            visualizer_path = Path.cwd() / "visualizer.html"
+        elif (repo_root / "visualizer.html").exists():
+            visualizer_path = repo_root / "visualizer.html"
+
+    if visualizer_path is None or not visualizer_path.exists():
         if is_json:
             sys.stdout.write(
                 json.dumps({"error": f"visualizer.html not found in {serve_dir}"}) + "\n"
@@ -660,6 +739,15 @@ def visualize(
         def do_GET(self):
             if self.path in ("/", ""):
                 self.path = "/visualizer.html"
+            if self.path == "/visualizer.html" and visualizer_path and visualizer_path.is_file():
+                if not (serve_dir / "visualizer.html").is_file():
+                    self.send_response(200)
+                    self.send_header("Content-Type", "text/html; charset=utf-8")
+                    content = visualizer_path.read_bytes()
+                    self.send_header("Content-Length", str(len(content)))
+                    self.end_headers()
+                    self.wfile.write(content)
+                    return
             return super().do_GET()
 
         def end_headers(self):
@@ -671,6 +759,18 @@ def visualize(
             if is_quiet or is_json:
                 return
             sys.stderr.write(f"[HTTP] {format % args}\n")
+
+    try:
+        httpd = http.server.ThreadingHTTPServer((host, port), VisualizerHandler)
+    except OSError as exc:
+        if is_json:
+            sys.stdout.write(
+                json.dumps({"error": f"Failed to bind port {port}: {exc}"}) + "\n"
+            )
+            raise typer.Exit(code=1)
+        console.print(f"[bold red]Failed to start server on {host}:{port}:[/bold red] {exc}")
+        console.print(f"[dim]Try specifying a different port with: --port {port + 1}[/dim]")
+        raise typer.Exit(code=1)
 
     if is_json:
         sys.stdout.write(
@@ -708,17 +808,8 @@ def visualize(
             pass
 
     try:
-        with http.server.ThreadingHTTPServer((host, port), VisualizerHandler) as httpd:
+        with httpd:
             httpd.serve_forever()
-    except OSError as exc:
-        if is_json:
-            sys.stdout.write(
-                json.dumps({"error": f"Failed to bind port {port}: {exc}"}) + "\n"
-            )
-            raise typer.Exit(code=1)
-        console.print(f"[bold red]Failed to start server on {host}:{port}:[/bold red] {exc}")
-        console.print(f"[dim]Try specifying a different port with: --port {port + 1}[/dim]")
-        raise typer.Exit(code=1)
     except KeyboardInterrupt:
         if not is_json and not is_quiet:
             console.print("\n[yellow]Visualizer server stopped.[/yellow]")

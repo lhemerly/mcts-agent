@@ -37,6 +37,8 @@ def _is_mock_llm() -> bool:
     return os.getenv("USE_MOCK_PRIMITIVES", "false").lower() in ("1", "true", "yes")
 
 _AGY_MODEL = os.getenv("AGY_MODEL", "gemini-3.8-flash-medium")
+_DEFAULT_PROPOSAL_MODEL = "gemini-3.8-flash-low"
+_AGY_PROPOSAL_MODEL = os.getenv("AGY_PROPOSAL_MODEL", _DEFAULT_PROPOSAL_MODEL)
 
 _MOCK_ACTION_POOL: list[str] = [
     "Search for relevant documentation online",
@@ -66,48 +68,83 @@ def _path_to_root(node: Node) -> list[Node]:
 
 def _propose_actions(state: str, goal: str, n: int = 3) -> list[str]:
     """
-    Ask Gemini 3.8 Flash (via `agy --print`) to propose `n` distinct next
-    actions. agy is the authenticated Gemini harness — no API key needed.
+    Ask Gemini (via `agy --print`) to propose `n` distinct next actions,
+    requesting them one by one in separate requests. Each request provides the
+    goal, state, and already generated actions so far in the current expansion,
+    prompting the model to explore distinct, novel angles and strategies.
     """
     if _is_mock_llm():
         import random
         return random.sample(_MOCK_ACTION_POOL, min(n, len(_MOCK_ACTION_POOL)))
 
-    prompt = textwrap.dedent(f"""\
-        You are a planning assistant. Given the current reasoning state and the
-        overall goal, propose exactly {n} distinct, concrete next actions.
+    actions: list[str] = []
+    proposal_model = os.getenv("AGY_PROPOSAL_MODEL", _AGY_PROPOSAL_MODEL)
 
-        Goal:
-        {goal}
-
-        Current state / context:
-        {state}
-
-        Output ONLY a numbered list of {n} short action sentences (one per line),
-        with no extra commentary or preamble. Example format:
-        1. <action one>
-        2. <action two>
-        3. <action three>
-    """)
-
-    try:
-        result = subprocess.run(
-            ["agy", "--model", _AGY_MODEL, "--print", prompt],
-            capture_output=True, text=True, timeout=60,
+    for idx in range(n):
+        existing_actions_str = (
+            "\n".join(f"- {act}" for act in actions)
+            if actions
+            else "(No actions proposed yet for this expansion)"
         )
-        raw = result.stdout.strip()
-        actions = [
-            line.lstrip("0123456789.-) ").strip()
-            for line in raw.splitlines()
-            if line.lstrip("0123456789.-) ").strip()
-        ]
-        if not actions:
-            raise ValueError(f"agy returned no parseable actions. stdout: {raw!r}")
-        return actions[:n]
-    except Exception as exc:
-        print(f"[mcts] agy action proposal failed: {exc}. Using mock pool.")
-        import random
-        return random.sample(_MOCK_ACTION_POOL, min(n, len(_MOCK_ACTION_POOL)))
+
+        prompt = textwrap.dedent(f"""\
+            You are a creative planning assistant. Given the overall goal, the current
+            reasoning state, and candidate actions already proposed so far, propose
+            ONE distinct, novel next action exploring a different angle or strategy.
+
+            Goal:
+            {goal}
+
+            Current state / context:
+            {state}
+
+            Actions already generated so far in this expansion:
+            {existing_actions_str}
+
+            Instructions:
+            - Be creative and propose a distinct, novel next action exploring a different angle, methodology, or strategy.
+            - Do NOT duplicate, overlap, or rephrase the already generated actions.
+            - Propose exactly ONE single, concrete action.
+            - Output ONLY the single action sentence, with no commentary, numbering, bullets, or preamble.
+        """)
+
+        try:
+            result = subprocess.run(
+                ["agy", "--model", proposal_model, "--print", prompt],
+                capture_output=True, text=True, timeout=60,
+            )
+            if result.returncode != 0:
+                raise RuntimeError(f"agy exited with code {result.returncode}: {result.stderr.strip()}")
+            raw = result.stdout.strip()
+            lines = [
+                line.lstrip("0123456789.-*#) ").strip().strip('"\'')
+                for line in raw.splitlines()
+                if line.lstrip("0123456789.-*#) ").strip()
+            ]
+            if not lines:
+                raise ValueError(f"agy returned no parseable action. stdout: {raw!r}")
+
+            chosen_action = None
+            for candidate in lines:
+                if candidate and candidate not in actions:
+                    chosen_action = candidate
+                    break
+            if not chosen_action:
+                chosen_action = lines[0]
+
+            actions.append(chosen_action)
+        except Exception as exc:
+            print(f"[mcts] agy action proposal failed for candidate {idx + 1}: {exc}. Using fallback from mock pool.")
+            import random
+            unused_mock = [a for a in _MOCK_ACTION_POOL if a not in actions]
+            if unused_mock:
+                actions.append(random.choice(unused_mock))
+            elif _MOCK_ACTION_POOL:
+                actions.append(random.choice(_MOCK_ACTION_POOL))
+            else:
+                actions.append(f"Alternative strategic exploration step {idx + 1}")
+
+    return actions
 
 
 # ── MCTS stages ────────────────────────────────────────────────────────────────
@@ -368,11 +405,13 @@ def get_best_trajectory(root: Node) -> list[Node]:
 def execute_single_action(
     action: str,
     goal: str,
-    current_state: str,
+    current_state: str = "",
     workspace_dir: str = ".",
 ) -> dict[str, Any]:
     """
     Execute ONLY this single immediate action in the real workspace using agy.
+    Uses a lean execution context omitting accumulated history/outputs to keep
+    the execution prompt focused on the immediate task and essential goal.
     """
     if _is_mock_llm():
         return {
@@ -385,22 +424,20 @@ def execute_single_action(
     abs_workspace = os.path.abspath(workspace_dir)
     prompt = textwrap.dedent(f"""\
         You are the execution agent in a closed-loop reasoning system.
-        
+
         Goal:
-        {goal}
-        
-        Current context / state:
-        {current_state}
-        
+        {goal.strip()}
+
         Target Workspace Directory:
         {abs_workspace}
-        
+
         Task:
         Execute ONLY this specific immediate action now in this workspace:
-        >>> {action} <<<
-        
+        >>> {action.strip()} <<<
+
         All files created or modified MUST be written inside {abs_workspace}.
         Apply the necessary edits, write the code, or run the commands required for this action.
+        Always execute commands synchronously to full completion in the foreground; do not leave background tasks running.
         Do NOT attempt to execute future hypothetical steps beyond this immediate action.
     """)
 
@@ -408,13 +445,15 @@ def execute_single_action(
     print(f"[executor] Executing action with agy in {abs_workspace}: '{action}'")
     print(f"{'='*60}\n")
 
+    exec_timeout = int(os.getenv("MCTS_EXEC_TIMEOUT", "1800"))
+    timeout_str = f"{max(1, exec_timeout // 60)}m0s"
     cmd = [
         "agy",
         "--model", _AGY_MODEL,
         "--mode", "accept-edits",
         "--add-dir", abs_workspace,
         "--dangerously-skip-permissions",
-        "--print-timeout", "10m0s",
+        "--print-timeout", timeout_str,
         "--print",
         prompt,
     ]
@@ -424,7 +463,7 @@ def execute_single_action(
             cwd=workspace_dir,
             capture_output=True,
             text=True,
-            timeout=600,
+            timeout=exec_timeout,
         )
         return {
             "success": proc.returncode == 0,
