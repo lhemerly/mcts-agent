@@ -177,6 +177,8 @@ class OpenAIHTTPPlannerProvider(BasePlannerProvider):
                     resp_json = json.loads(resp.read().decode("utf-8"))
                     raw_content = resp_json["choices"][0]["message"]["content"].strip()
                     clean_action = raw_content.splitlines()[0].strip('"\'')
+                    if not clean_action or clean_action in actions:
+                        raise ValueError("HTTP planner returned an empty or duplicate action")
                     actions.append(clean_action)
                     print(f"[planner/http] Generated candidate {idx + 1}/{n}: '{clean_action[:60]}'")
             except Exception as exc:
