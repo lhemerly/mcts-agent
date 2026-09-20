@@ -320,8 +320,7 @@ class OpenAIHTTPExecutorProvider(BaseExecutorProvider):
 
             print(f"[executor/http] Running shell command:\n{cmd_str}\n")
             proc = subprocess.run(
-                cmd_str,
-                shell=True,
+                ["bash", "-c", cmd_str],
                 cwd=workspace_dir,
                 capture_output=True,
                 text=True,
