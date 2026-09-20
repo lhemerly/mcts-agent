@@ -59,6 +59,8 @@ def load_config(
         candidates = (
             Path.cwd() / "antigravity.toml",
             Path.cwd() / "config.toml",
+            Path.home() / ".config" / "mcts-agent" / "config.toml",
+            Path.home() / ".antigravity.toml",
             package_root / "antigravity.toml",
             package_root / "config.toml",
         )
