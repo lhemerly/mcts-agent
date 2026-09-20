@@ -12,3 +12,17 @@ packages = [
     "typesafe-sdk",
     "python-dotenv",
 ]
+
+[providers]
+planner = "agy"       # options: "agy", "llama_cpp", "openai", "mock"
+executor = "agy"      # options: "agy", "llama_cpp", "local_cmd", "mock"
+
+[planner]
+model = "gemini-3.6-flash-low"
+endpoint = "http://localhost:8080/v1/chat/completions" # for llama_cpp / openai
+
+[executor]
+model = "gemini-3.8-flash-medium"
+endpoint = "http://localhost:8080/v1/chat/completions" # for llama_cpp / openai
+timeout = 1800
+
