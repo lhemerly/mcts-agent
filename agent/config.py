@@ -55,9 +55,14 @@ def load_config(
     # 1. Try reading TOML config file
     target_path = Path(config_path) if config_path else None
     if not target_path:
-        default_toml = Path(__file__).resolve().parent.parent / "antigravity.toml"
-        if default_toml.exists():
-            target_path = default_toml
+        package_root = Path(__file__).resolve().parent.parent
+        candidates = (
+            Path.cwd() / "antigravity.toml",
+            Path.cwd() / "config.toml",
+            package_root / "antigravity.toml",
+            package_root / "config.toml",
+        )
+        target_path = next((candidate for candidate in candidates if candidate.exists()), None)
 
     if target_path and target_path.exists() and tomllib is not None:
         try:
