@@ -142,49 +142,75 @@ class OpenAIHTTPPlannerProvider(BasePlannerProvider):
 
     def propose_actions(self, state: str, goal: str, n: int = 3) -> list[str]:
         actions: list[str] = []
+
         for idx in range(n):
             existing_actions_str = (
                 "\n".join(f"- {act}" for act in actions)
                 if actions
-                else "(None)"
+                else "(No actions proposed yet for this step)"
             )
 
             prompt = textwrap.dedent(f"""\
                 You are a creative planning assistant.
-                Goal: {goal}
-                Current State: {state}
-                Actions proposed so far in this step: {existing_actions_str}
+                Overall Goal: {goal}
+                Current Reasoning State: {state}
 
-                Propose ONE distinct, concrete next action to make progress toward the goal.
-                Do NOT repeat previous actions.
-                Output ONLY the single action sentence without quotes or preamble.
+                Actions already proposed for this expansion:
+                {existing_actions_str}
+
+                Instructions:
+                - Propose ONE single, distinct next action exploring a different angle or strategy.
+                - Do NOT repeat, rephrase, or overlap with any previously proposed actions.
+                - Output ONLY the action sentence itself with no commentary, bullets, or numbers.
             """)
 
-            payload = {
-                "model": self.model,
-                "messages": [{"role": "user", "content": prompt}],
-                "temperature": 0.7,
-                "max_tokens": 150,
-            }
-            req_data = json.dumps(payload).encode("utf-8")
             headers = {"Content-Type": "application/json"}
             if self.api_key:
                 headers["Authorization"] = f"Bearer {self.api_key}"
 
-            try:
-                req = urllib.request.Request(self.endpoint, data=req_data, headers=headers)
-                with urllib.request.urlopen(req, timeout=45) as resp:
-                    resp_json = json.loads(resp.read().decode("utf-8"))
-                    raw_content = resp_json["choices"][0]["message"]["content"].strip()
-                    clean_action = raw_content.splitlines()[0].strip('"\'')
-                    if not clean_action or clean_action in actions:
-                        raise ValueError("HTTP planner returned an empty or duplicate action")
-                    actions.append(clean_action)
-                    print(f"[planner/http] Generated candidate {idx + 1}/{n}: '{clean_action[:60]}'")
-            except Exception as exc:
-                print(f"[planner/http] Proposal failed via {self.endpoint}: {exc}. Using fallback.")
+            chosen_action: str | None = None
+
+            for attempt in range(3):
+                temp = min(1.0, 0.7 + attempt * 0.15)
+                payload = {
+                    "model": self.model,
+                    "messages": [{"role": "user", "content": prompt}],
+                    "temperature": temp,
+                    "presence_penalty": 0.5,
+                    "max_tokens": 150,
+                }
+                req_data = json.dumps(payload).encode("utf-8")
+
+                try:
+                    req = urllib.request.Request(self.endpoint, data=req_data, headers=headers)
+                    with urllib.request.urlopen(req, timeout=45) as resp:
+                        resp_json = json.loads(resp.read().decode("utf-8"))
+                        raw_content = resp_json["choices"][0]["message"]["content"].strip()
+
+                    lines = [
+                        line.lstrip("0123456789.-*#) ").strip().strip('"\'')
+                        for line in raw_content.splitlines()
+                        if line.lstrip("0123456789.-*#) ").strip()
+                    ]
+
+                    for cand in lines:
+                        if cand and cand not in actions:
+                            chosen_action = cand
+                            break
+
+                    if chosen_action:
+                        break
+                except Exception as exc:
+                    print(f"[planner/http] Candidate {idx + 1} attempt {attempt + 1} failed: {exc}")
+
+            if chosen_action:
+                actions.append(chosen_action)
+                print(f"[planner/http] Generated candidate {idx + 1}/{n}: '{chosen_action[:60]}'")
+            else:
+                print(f"[planner/http] Candidate {idx + 1}/{n} failed after retries. Using fallback.")
                 unused_mock = [a for a in _MOCK_ACTION_POOL if a not in actions]
-                actions.append(random.choice(unused_mock) if unused_mock else f"Action step {idx + 1}")
+                fallback = random.choice(unused_mock) if unused_mock else f"Strategic step {idx + 1}"
+                actions.append(fallback)
 
         return actions
 
