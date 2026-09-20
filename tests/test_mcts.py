@@ -201,14 +201,13 @@ class TestProposeActions(unittest.TestCase):
     def test_propose_actions_iterative_calls_and_model(self):
         from agent.mcts import _propose_actions
         from unittest.mock import patch, MagicMock
-        with patch("agent.mcts._is_mock_llm", return_value=False), \
-             patch("agent.mcts.subprocess.run") as mock_run, \
-             patch.dict("os.environ", {"AGY_PROPOSAL_MODEL": "custom-proposal-model"}):
+        with patch.dict("os.environ", {"USE_MOCK_PRIMITIVES": "false", "AGY_PROPOSAL_MODEL": "custom-proposal-model"}), \
+             patch("agent.providers.subprocess.run") as mock_run:
 
             mock_run.side_effect = [
-                MagicMock(returncode=0, stdout="1. First creative strategy\n"),
-                MagicMock(returncode=0, stdout="Second novel angle\n"),
-                MagicMock(returncode=0, stdout="Third alternative method\n"),
+                MagicMock(returncode=0, stdout="1. First creative strategy\n", stderr=""),
+                MagicMock(returncode=0, stdout="Second novel angle\n", stderr=""),
+                MagicMock(returncode=0, stdout="Third alternative method\n", stderr=""),
             ]
 
             actions = _propose_actions("Sample state", "Sample goal", n=3)

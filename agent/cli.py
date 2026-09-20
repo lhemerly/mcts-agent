@@ -41,6 +41,7 @@ if _env_path.exists():
 else:
     load_dotenv()
 
+from agent.config import AgentConfig, load_config
 from agent.mcts import (
     adapt_state,
     execute_single_action,
@@ -226,6 +227,18 @@ def run(
     workspace: Optional[str] = typer.Option(
         None, "--workspace", "-w", help="Working directory for agent execution."
     ),
+    planner: Optional[str] = typer.Option(
+        None, "--planner", "-p", help="Planner backend provider (agy | llama_cpp | openai | mock)."
+    ),
+    executor: Optional[str] = typer.Option(
+        None, "--executor", "-e", help="Executor backend provider (agy | llama_cpp | local_cmd | mock)."
+    ),
+    planner_endpoint: Optional[str] = typer.Option(
+        None, "--planner-endpoint", help="HTTP endpoint URL for llama_cpp / openai planner."
+    ),
+    executor_endpoint: Optional[str] = typer.Option(
+        None, "--executor-endpoint", help="HTTP endpoint URL for llama_cpp / openai executor."
+    ),
     proposal_model: str = typer.Option(
         os.getenv("AGY_PROPOSAL_MODEL", "gemini-3.8-flash-low"),
         "--proposal-model",
@@ -309,6 +322,18 @@ def run(
     execute_plan = not no_execute
     resolved_workspace = workspace or os.getcwd()
 
+    config_overrides: dict[str, Any] = {}
+    if planner:
+        config_overrides["planner_provider"] = planner
+    if executor:
+        config_overrides["executor_provider"] = executor
+    if planner_endpoint:
+        config_overrides["planner_endpoint"] = planner_endpoint
+    if executor_endpoint:
+        config_overrides["executor_endpoint"] = executor_endpoint
+
+    cfg = load_config(cli_overrides=config_overrides)
+
     if not is_json and not is_quiet:
         _render_banner(
             console=console,
@@ -317,7 +342,7 @@ def run(
             max_steps=max_steps,
             iterations=iterations,
             workspace=resolved_workspace,
-            proposal_model=proposal_model,
+            proposal_model=cfg.planner_model,
         )
 
     try:
@@ -332,6 +357,7 @@ def run(
                 early_stop_noul=early_stop_noul,
                 execute=execute_plan,
                 workspace_dir=resolved_workspace,
+                config=cfg,
             )
     except Exception as exc:
         if is_json:

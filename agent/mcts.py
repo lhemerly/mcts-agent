@@ -19,6 +19,7 @@ import textwrap
 from datetime import datetime
 from typing import Any, Optional
 
+from agent.config import AgentConfig, load_config
 from agent.logger import MCTSLogger, save_agent_summary
 from agent.node import Node
 from agent.primitives import (
@@ -32,6 +33,7 @@ from agent.primitives import (
     select_action_count,
     select_simulation_depth,
 )
+from agent.providers import get_executor_provider, get_planner_provider
 
 def _is_mock_llm() -> bool:
     return os.getenv("USE_MOCK_PRIMITIVES", "false").lower() in ("1", "true", "yes")
@@ -64,87 +66,17 @@ def _path_to_root(node: Node) -> list[Node]:
     return list(reversed(path))
 
 
-# ── Action proposal via antigravity CLI ────────────────────────────────────────
+# ── Action proposal via pluggable planner provider ──────────────────────────────
 
-def _propose_actions(state: str, goal: str, n: int = 3) -> list[str]:
+def _propose_actions(
+    state: str, goal: str, n: int = 3, config: AgentConfig | None = None
+) -> list[str]:
     """
-    Ask Gemini (via `agy --print`) to propose `n` distinct next actions,
-    requesting them one by one in separate requests. Each request provides the
-    goal, state, and already generated actions so far in the current expansion,
-    prompting the model to explore distinct, novel angles and strategies.
+    Propose `n` distinct next actions using the configured PlannerProvider.
     """
-    if _is_mock_llm():
-        import random
-        return random.sample(_MOCK_ACTION_POOL, min(n, len(_MOCK_ACTION_POOL)))
-
-    actions: list[str] = []
-    proposal_model = os.getenv("AGY_PROPOSAL_MODEL", _AGY_PROPOSAL_MODEL)
-
-    for idx in range(n):
-        existing_actions_str = (
-            "\n".join(f"- {act}" for act in actions)
-            if actions
-            else "(No actions proposed yet for this expansion)"
-        )
-
-        prompt = textwrap.dedent(f"""\
-            You are a creative planning assistant. Given the overall goal, the current
-            reasoning state, and candidate actions already proposed so far, propose
-            ONE distinct, novel next action exploring a different angle or strategy.
-
-            Goal:
-            {goal}
-
-            Current state / context:
-            {state}
-
-            Actions already generated so far in this expansion:
-            {existing_actions_str}
-
-            Instructions:
-            - Be creative and propose a distinct, novel next action exploring a different angle, methodology, or strategy.
-            - Do NOT duplicate, overlap, or rephrase the already generated actions.
-            - Propose exactly ONE single, concrete action.
-            - Output ONLY the single action sentence, with no commentary, numbering, bullets, or preamble.
-        """)
-
-        try:
-            result = subprocess.run(
-                ["agy", "--model", proposal_model, "--print", prompt],
-                capture_output=True, text=True, timeout=60,
-            )
-            if result.returncode != 0:
-                raise RuntimeError(f"agy exited with code {result.returncode}: {result.stderr.strip()}")
-            raw = result.stdout.strip()
-            lines = [
-                line.lstrip("0123456789.-*#) ").strip().strip('"\'')
-                for line in raw.splitlines()
-                if line.lstrip("0123456789.-*#) ").strip()
-            ]
-            if not lines:
-                raise ValueError(f"agy returned no parseable action. stdout: {raw!r}")
-
-            chosen_action = None
-            for candidate in lines:
-                if candidate and candidate not in actions:
-                    chosen_action = candidate
-                    break
-            if not chosen_action:
-                chosen_action = lines[0]
-
-            actions.append(chosen_action)
-        except Exception as exc:
-            print(f"[mcts] agy action proposal failed for candidate {idx + 1}: {exc}. Using fallback from mock pool.")
-            import random
-            unused_mock = [a for a in _MOCK_ACTION_POOL if a not in actions]
-            if unused_mock:
-                actions.append(random.choice(unused_mock))
-            elif _MOCK_ACTION_POOL:
-                actions.append(random.choice(_MOCK_ACTION_POOL))
-            else:
-                actions.append(f"Alternative strategic exploration step {idx + 1}")
-
-    return actions
+    cfg = config or load_config()
+    planner = get_planner_provider(cfg)
+    return planner.propose_actions(state, goal, n=n)
 
 
 # ── MCTS stages ────────────────────────────────────────────────────────────────
@@ -162,6 +94,7 @@ def _expand(
     goal: str,
     actions_per_node: int | None,
     logger: MCTSLogger,
+    config: AgentConfig | None = None,
 ) -> list[Node]:
     if actions_per_node is not None:
         n_actions = actions_per_node
@@ -169,7 +102,7 @@ def _expand(
         # Dynamically select branching factor from primes up to 13 (2, 3, 5, 7, 11, 13) via Choice
         n_actions = select_action_count(leaf.state, goal)
 
-    candidates = _propose_actions(leaf.state, goal, n=n_actions)
+    candidates = _propose_actions(leaf.state, goal, n=n_actions, config=config)
     print(f"  [expand] Proposed {len(candidates)} action(s) (target {n_actions}): {candidates}")
     logger.emit_candidates(candidates)
 
@@ -218,6 +151,7 @@ def _simulate(
     logger: MCTSLogger,
     *,
     rollout_depth: int = 1,
+    config: AgentConfig | None = None,
 ) -> float:
     """
     Multi-step rollout simulation:
@@ -235,7 +169,7 @@ def _simulate(
     if rollout_depth > 1:
         print(f"  [simulate] Projecting {rollout_depth} steps ahead into the future...")
         for step_idx in range(1, rollout_depth):
-            cands = _propose_actions(current_sim_state, goal, n=2)
+            cands = _propose_actions(current_sim_state, goal, n=2, config=config)
             validity = batch_check_validity(current_sim_state, cands)
             valid_cands = [a for a in cands if validity.get(a, (False, 0.0))[0]]
             if not valid_cands:
@@ -281,34 +215,10 @@ def run_mcts(
     execute: bool = False,
     exploration_constant: float = 1.4,
     log_dir: str = "logs",
+    config: AgentConfig | None = None,
 ) -> tuple[Node, str]:
     """
     Run MCTS from `root` to evaluate candidates and select the single best immediate action.
-
-    Parameters
-    ----------
-    iterations : int | None
-        Maximum number of iterations, or None to let JEV / TypeSafe Noul dynamically decide
-        when search convergence or completion is reached.
-    actions_per_node : int | None
-        Fixed number of candidate actions to propose, or None to use TypeSafe Choice
-        to dynamically choose branching variance among primes <= 13 (2, 3, 5, 7, 11, 13).
-    simulation_depth : int | None
-        Fixed number of lookahead rollout steps to project into the future, or None
-        to use TypeSafe Choice to dynamically choose prime depth from (2, 3, 5).
-    early_stop_noul : bool
-        If True, queries Noul at each iteration to detect if the task has been
-        completed or refined enough, stopping search early when confidence is high.
-    step : int | None
-        Step number in a multi-step closed-loop run.
-    run_id : str | None
-        Unique run ID to group multi-step logs.
-    exploration_constant : float
-        PUCT exploration parameter.
-
-    Returns
-    -------
-    (best_child, log_path) — best immediate action node + path to the JSON log.
     """
     if iterations is None and not early_stop_noul:
         raise ValueError("Cannot disable early_stop_noul when iterations is set to None (dynamic mode requires early stopping).")
@@ -361,11 +271,11 @@ def run_mcts(
         print(f"  [select] Leaf: visits={leaf.visits}, action='{leaf.action_taken}'")
 
         # 2. Simulation (multi-step lookahead rollout)
-        value = _simulate(leaf, goal, logger, rollout_depth=rollout_depth)
+        value = _simulate(leaf, goal, logger, rollout_depth=rollout_depth, config=config)
 
         # 3. Expansion
         if leaf.is_leaf:
-            _expand(leaf, goal, actions_per_node, logger)
+            _expand(leaf, goal, actions_per_node, logger, config=config)
 
         # 4. Backpropagation
         _backpropagate(leaf, value, logger)
@@ -423,78 +333,14 @@ def execute_single_action(
     goal: str,
     current_state: str = "",
     workspace_dir: str = ".",
+    config: AgentConfig | None = None,
 ) -> dict[str, Any]:
     """
-    Execute ONLY this single immediate action in the real workspace using agy.
-    Uses a lean execution context omitting accumulated history/outputs to keep
-    the execution prompt focused on the immediate task and essential goal.
+    Execute ONLY this single immediate action in the workspace using the configured ExecutorProvider.
     """
-    if _is_mock_llm():
-        return {
-            "success": True,
-            "stdout": f"[mock] Successfully executed action: {action}",
-            "stderr": "",
-            "returncode": 0,
-        }
-
-    abs_workspace = os.path.abspath(workspace_dir)
-    prompt = textwrap.dedent(f"""\
-        You are the execution agent in a closed-loop reasoning system.
-
-        Goal:
-        {goal.strip()}
-
-        Target Workspace Directory:
-        {abs_workspace}
-
-        Task:
-        Execute ONLY this specific immediate action now in this workspace:
-        >>> {action.strip()} <<<
-
-        All files created or modified MUST be written inside {abs_workspace}.
-        Apply the necessary edits, write the code, or run the commands required for this action.
-        Always execute commands synchronously to full completion in the foreground; do not leave background tasks running.
-        Do NOT attempt to execute future hypothetical steps beyond this immediate action.
-    """)
-
-    print(f"\n{'='*60}")
-    print(f"[executor] Executing action with agy in {abs_workspace}: '{action}'")
-    print(f"{'='*60}\n")
-
-    exec_timeout = int(os.getenv("MCTS_EXEC_TIMEOUT", "1800"))
-    timeout_str = f"{max(1, exec_timeout // 60)}m0s"
-    cmd = [
-        "agy",
-        "--model", _AGY_MODEL,
-        "--mode", "accept-edits",
-        "--add-dir", abs_workspace,
-        "--dangerously-skip-permissions",
-        "--print-timeout", timeout_str,
-        "--print",
-        prompt,
-    ]
-    try:
-        proc = subprocess.run(
-            cmd,
-            cwd=workspace_dir,
-            capture_output=True,
-            text=True,
-            timeout=exec_timeout,
-        )
-        return {
-            "success": proc.returncode == 0,
-            "stdout": proc.stdout.strip(),
-            "stderr": proc.stderr.strip(),
-            "returncode": proc.returncode,
-        }
-    except Exception as exc:
-        print(f"[executor] agy execution failed: {exc}")
-        return {
-            "success": False,
-            "stdout": "",
-            "stderr": str(exc),
-            "returncode": -1,
-        }
+    cfg = config or load_config()
+    executor = get_executor_provider(cfg)
+    return executor.execute_action(action, goal, workspace_dir)
 
 
 def review_action(
@@ -573,6 +419,7 @@ def run_closed_loop_agent(
     exploration_constant: float = 1.4,
     log_dir: str = "logs",
     workspace_dir: str | None = None,
+    config: AgentConfig | None = None,
 ) -> dict[str, Any]:
     """
     Run the closed-loop MCTS agent:
@@ -587,6 +434,8 @@ def run_closed_loop_agent(
 
     if max_steps is None and not early_stop_noul:
         raise ValueError("Cannot disable early_stop_noul when max_steps is set to None (dynamic mode requires early stopping).")
+
+    cfg = config or load_config()
 
     max_dynamic_steps = int(os.getenv("MCTS_DYNAMIC_MAX_STEPS", "50"))
     effective_max_steps = max_steps if max_steps is not None else max_dynamic_steps
@@ -605,6 +454,8 @@ def run_closed_loop_agent(
     print(f"\n{'#'*70}")
     print(f"CLOSED-LOOP MCTS AGENT (Plan -> Choose -> Execute -> Review -> Assess)")
     print(f"Run ID: {run_id} | {steps_desc} | {iter_desc}")
+    print(f"Planner Provider: {cfg.planner_provider} (model={cfg.planner_model})")
+    print(f"Executor Provider: {cfg.executor_provider} (model={cfg.executor_model})")
     print(f"Goal: {goal}")
     print(f"Workspace: {target_workspace}")
     print(f"Logs Dir: {resolved_log_dir}")
@@ -637,6 +488,7 @@ def run_closed_loop_agent(
             run_id=run_id,
             exploration_constant=exploration_constant,
             log_dir=resolved_log_dir,
+            config=cfg,
         )
 
         chosen_action = best_node.action_taken
@@ -654,6 +506,7 @@ def run_closed_loop_agent(
                 goal=goal,
                 current_state=current_state,
                 workspace_dir=target_workspace,
+                config=cfg,
             )
         else:
             print("[closed-loop] Execution skipped (--no-execute mode).")
