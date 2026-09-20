@@ -145,6 +145,13 @@ def load_config(
     except (ValueError, TypeError):
         executor_timeout = 1800
 
+    # Default to mock providers when USE_MOCK_PRIMITIVES is active (e.g. --mock or unit tests)
+    if os.getenv("USE_MOCK_PRIMITIVES", "false").lower() in ("1", "true", "yes"):
+        if not cli_overrides.get("planner_provider") and not os.getenv("MCTS_PLANNER_PROVIDER"):
+            planner_provider = "mock"
+        if not cli_overrides.get("executor_provider") and not os.getenv("MCTS_EXECUTOR_PROVIDER"):
+            executor_provider = "mock"
+
     return AgentConfig(
         planner_provider=str(planner_provider).lower(),
         executor_provider=str(executor_provider).lower(),

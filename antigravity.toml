@@ -14,11 +14,11 @@ packages = [
 ]
 
 [providers]
-planner = "agy"       # options: "agy", "llama_cpp", "openai", "mock"
-executor = "agy"      # options: "agy", "llama_cpp", "local_cmd", "mock"
+planner = "llama_cpp"   # options: "agy", "llama_cpp", "openai", "mock"
+executor = "agy"        # options: "agy", "llama_cpp", "local_cmd", "mock"
 
 [planner]
-model = "gemini-3.6-flash-low"
+model = "local-model"
 endpoint = "http://localhost:8080/v1/chat/completions" # for llama_cpp / openai
 
 [executor]

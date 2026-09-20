@@ -201,7 +201,7 @@ class TestProposeActions(unittest.TestCase):
     def test_propose_actions_iterative_calls_and_model(self):
         from agent.mcts import _propose_actions
         from unittest.mock import patch, MagicMock
-        with patch.dict("os.environ", {"USE_MOCK_PRIMITIVES": "false", "AGY_PROPOSAL_MODEL": "custom-proposal-model"}), \
+        with patch.dict("os.environ", {"MCTS_PLANNER_PROVIDER": "agy", "USE_MOCK_PRIMITIVES": "false", "AGY_PROPOSAL_MODEL": "custom-proposal-model"}), \
              patch("agent.providers.subprocess.run") as mock_run:
 
             mock_run.side_effect = [
