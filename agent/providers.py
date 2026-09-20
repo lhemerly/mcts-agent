@@ -127,6 +127,14 @@ class AGYPlannerProvider(BasePlannerProvider):
         return actions
 
 
+_CREATIVE_STRATEGIES: list[str] = [
+    "Propose a direct, practical next action to make immediate progress toward the goal.",
+    "Think outside the box! Explore an unconventional, highly creative, or novel strategic angle.",
+    "Be analytical! Focus on decomposing the problem, verifying assumptions, or mitigating risks.",
+    "Explore a high-leverage diagnostic or alternative technical direction completely distinct from previous steps.",
+]
+
+
 class OpenAIHTTPPlannerProvider(BasePlannerProvider):
     """Planner using any OpenAI-compatible HTTP endpoint (llama.cpp server, vLLM, Ollama, OpenAI)."""
 
@@ -150,33 +158,38 @@ class OpenAIHTTPPlannerProvider(BasePlannerProvider):
                 else "(No actions proposed yet for this step)"
             )
 
-            prompt = textwrap.dedent(f"""\
-                You are a creative planning assistant.
-                Overall Goal: {goal}
-                Current Reasoning State: {state}
-
-                Actions already proposed for this expansion:
-                {existing_actions_str}
-
-                Instructions:
-                - Propose ONE single, distinct next action exploring a different angle or strategy.
-                - Do NOT repeat, rephrase, or overlap with any previously proposed actions.
-                - Output ONLY the action sentence itself with no commentary, bullets, or numbers.
-            """)
-
             headers = {"Content-Type": "application/json"}
             if self.api_key:
                 headers["Authorization"] = f"Bearer {self.api_key}"
 
             chosen_action: str | None = None
 
-            for attempt in range(3):
-                temp = min(1.0, 0.7 + attempt * 0.15)
+            for attempt in range(4):
+                strategy_hint = _CREATIVE_STRATEGIES[attempt % len(_CREATIVE_STRATEGIES)]
+                temp = min(1.0, 0.7 + attempt * 0.1)
+                presence_pen = min(1.0, 0.3 + attempt * 0.25)
+                frequency_pen = min(1.0, 0.2 + attempt * 0.25)
+
+                prompt = textwrap.dedent(f"""\
+                    You are a creative planning assistant.
+                    Overall Goal: {goal}
+                    Current Reasoning State: {state}
+
+                    Actions already proposed for this expansion:
+                    {existing_actions_str}
+
+                    Instructions:
+                    - {strategy_hint}
+                    - Do NOT repeat, rephrase, or overlap with any previously proposed actions.
+                    - Output ONLY the single action sentence itself with no commentary, bullets, or numbers.
+                """)
+
                 payload = {
                     "model": self.model,
                     "messages": [{"role": "user", "content": prompt}],
                     "temperature": temp,
-                    "presence_penalty": 0.5,
+                    "presence_penalty": presence_pen,
+                    "frequency_penalty": frequency_pen,
                     "max_tokens": 150,
                 }
                 req_data = json.dumps(payload).encode("utf-8")
