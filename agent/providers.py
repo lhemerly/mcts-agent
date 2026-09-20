@@ -307,7 +307,7 @@ class OpenAIHTTPExecutorProvider(BaseExecutorProvider):
 
         try:
             req = urllib.request.Request(self.endpoint, data=req_data, headers=headers)
-            with urllib.request.urlopen(req, timeout=60) as resp:
+            with urllib.request.urlopen(req, timeout=self.timeout) as resp:
                 resp_json = json.loads(resp.read().decode("utf-8"))
                 raw_text = resp_json["choices"][0]["message"]["content"]
 
