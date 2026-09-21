@@ -35,9 +35,28 @@ _MOCK_ACTION_POOL: list[str] = [
 
 class BasePlannerProvider(ABC):
     @abstractmethod
-    def propose_actions(self, state: str, goal: str, n: int = 3) -> list[str]:
-        """Propose n distinct candidate actions given the current state and goal."""
-        pass
+    def propose_actions(
+        self,
+        state: str,
+        goal: str,
+        n: int = 3,
+        explored_actions: Optional[list[str]] = None,
+    ) -> list[str]:
+        """
+        Propose n distinct candidate actions given the current state and goal.
+
+        Parameters
+        ----------
+        state : str
+            Current node state context.
+        goal : str
+            Overall goal description.
+        n : int
+            Number of distinct actions to propose.
+        explored_actions : list[str] | None
+            All actions already present anywhere in the search tree.
+            Planners should inject these into their prompts to avoid duplicates.
+        """
 
 
 class BaseExecutorProvider(ABC):
@@ -46,7 +65,6 @@ class BaseExecutorProvider(ABC):
         self, action: str, goal: str, workspace_dir: str
     ) -> dict[str, Any]:
         """Execute a single action in the workspace and return execution results."""
-        pass
 
 
 # ── Planner Implementations ────────────────────────────────────────────────────
@@ -55,9 +73,20 @@ class AGYPlannerProvider(BasePlannerProvider):
     def __init__(self, model: str = "gemini-3.6-flash-low"):
         self.model = model
 
-    def propose_actions(self, state: str, goal: str, n: int = 3) -> list[str]:
+    def propose_actions(
+        self,
+        state: str,
+        goal: str,
+        n: int = 3,
+        explored_actions: Optional[list[str]] = None,
+    ) -> list[str]:
         if os.getenv("USE_MOCK_PRIMITIVES", "false").lower() in ("1", "true", "yes"):
             return random.sample(_MOCK_ACTION_POOL, min(n, len(_MOCK_ACTION_POOL)))
+
+        explored_str = (
+            "\n".join(f"- {a}" for a in (explored_actions or []))
+            or "(None yet)"
+        )
 
         actions: list[str] = []
         for idx in range(n):
@@ -78,12 +107,15 @@ class AGYPlannerProvider(BasePlannerProvider):
                 Current state / context:
                 {state}
 
-                Actions already generated so far in this expansion:
+                Actions ALREADY EXPLORED anywhere in the search tree (DO NOT reproduce these):
+                {explored_str}
+
+                Actions already proposed in this current expansion batch:
                 {existing_actions_str}
 
                 Instructions:
                 - Be creative and propose a distinct, novel next action exploring a different angle, methodology, or strategy.
-                - Do NOT duplicate, overlap, or rephrase the already generated actions.
+                - Do NOT duplicate, overlap, or rephrase any action listed above (explored or batch).
                 - Propose exactly ONE single, concrete action.
                 - Output ONLY the single action sentence, with no commentary, numbering, bullets, or preamble.
             """)
@@ -107,8 +139,9 @@ class AGYPlannerProvider(BasePlannerProvider):
                     raise ValueError(f"agy returned no parseable action. stdout: {raw!r}")
 
                 chosen_action = None
+                all_explored = set(explored_actions or []) | set(actions)
                 for candidate in lines:
-                    if candidate and candidate not in actions:
+                    if candidate and candidate not in all_explored:
                         chosen_action = candidate
                         break
                 if not chosen_action:
@@ -118,7 +151,8 @@ class AGYPlannerProvider(BasePlannerProvider):
                 print(f"[planner/agy] Generated candidate {idx + 1}/{n}: '{chosen_action[:60]}'")
             except Exception as exc:
                 print(f"[planner/agy] Action proposal failed for candidate {idx + 1}: {exc}. Using fallback.")
-                unused_mock = [a for a in _MOCK_ACTION_POOL if a not in actions]
+                all_explored = set(explored_actions or []) | set(actions)
+                unused_mock = [a for a in _MOCK_ACTION_POOL if a not in all_explored]
                 if unused_mock:
                     actions.append(random.choice(unused_mock))
                 else:
@@ -148,8 +182,18 @@ class OpenAIHTTPPlannerProvider(BasePlannerProvider):
         self.model = model
         self.api_key = api_key
 
-    def propose_actions(self, state: str, goal: str, n: int = 3) -> list[str]:
+    def propose_actions(
+        self,
+        state: str,
+        goal: str,
+        n: int = 3,
+        explored_actions: Optional[list[str]] = None,
+    ) -> list[str]:
         actions: list[str] = []
+        explored_str = (
+            "\n".join(f"- {a}" for a in (explored_actions or []))
+            or "(None yet)"
+        )
 
         for idx in range(n):
             existing_actions_str = (
@@ -175,12 +219,15 @@ class OpenAIHTTPPlannerProvider(BasePlannerProvider):
                     Overall Goal: {goal}
                     Current Reasoning State: {state}
 
-                    Actions already proposed for this expansion:
+                    Actions ALREADY EXPLORED anywhere in the search tree (DO NOT reproduce these):
+                    {explored_str}
+
+                    Actions already proposed in this current expansion batch:
                     {existing_actions_str}
 
                     Instructions:
                     - {strategy_hint}
-                    - Do NOT repeat, rephrase, or overlap with any previously proposed actions.
+                    - Do NOT repeat, rephrase, or overlap with ANY action listed above (explored or batch).
                     - Output ONLY the single action sentence itself with no commentary, bullets, or numbers.
                 """)
 
@@ -206,8 +253,9 @@ class OpenAIHTTPPlannerProvider(BasePlannerProvider):
                         if line.lstrip("0123456789.-*#) ").strip()
                     ]
 
+                    all_explored = set(explored_actions or []) | set(actions)
                     for cand in lines:
-                        if cand and cand not in actions:
+                        if cand and cand not in all_explored:
                             chosen_action = cand
                             break
 
@@ -221,7 +269,8 @@ class OpenAIHTTPPlannerProvider(BasePlannerProvider):
                 print(f"[planner/http] Generated candidate {idx + 1}/{n}: '{chosen_action[:60]}'")
             else:
                 print(f"[planner/http] Candidate {idx + 1}/{n} failed after retries. Using fallback.")
-                unused_mock = [a for a in _MOCK_ACTION_POOL if a not in actions]
+                all_explored = set(explored_actions or []) | set(actions)
+                unused_mock = [a for a in _MOCK_ACTION_POOL if a not in all_explored]
                 fallback = random.choice(unused_mock) if unused_mock else f"Strategic step {idx + 1}"
                 actions.append(fallback)
 
@@ -229,8 +278,19 @@ class OpenAIHTTPPlannerProvider(BasePlannerProvider):
 
 
 class MockPlannerProvider(BasePlannerProvider):
-    def propose_actions(self, state: str, goal: str, n: int = 3) -> list[str]:
-        return random.sample(_MOCK_ACTION_POOL, min(n, len(_MOCK_ACTION_POOL)))
+    def propose_actions(
+        self,
+        state: str,
+        goal: str,
+        n: int = 3,
+        explored_actions: Optional[list[str]] = None,
+    ) -> list[str]:
+        all_explored = set(explored_actions or [])
+        available = [a for a in _MOCK_ACTION_POOL if a not in all_explored]
+        # Fall back to full pool if all explored (avoids empty sample in long tests)
+        if len(available) < n:
+            available = _MOCK_ACTION_POOL
+        return random.sample(available, min(n, len(available)))
 
 
 # ── Executor Implementations ───────────────────────────────────────────────────
