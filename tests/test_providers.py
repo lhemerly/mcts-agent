@@ -46,6 +46,48 @@ class TestConfigAndProviders(unittest.TestCase):
         self.assertEqual(config.planner_model, "qwen")
         self.assertEqual(config.executor_model, "claude")
 
+    def test_pi_empty_toml_models_preserve_pi_defaults(self):
+        config_toml = '''
+[providers]
+planner = "pi"
+executor = "pi"
+
+[planner]
+model = ""
+
+[executor]
+model = ""
+'''
+        with tempfile.NamedTemporaryFile("w", suffix=".toml") as config_file, patch.dict(
+            os.environ, {"USE_MOCK_PRIMITIVES": "false"}, clear=False
+        ):
+            config_file.write(config_toml)
+            config_file.flush()
+            config = load_config(config_file.name)
+
+        self.assertEqual(config.planner_model, "")
+        self.assertEqual(config.executor_model, "")
+        self.assertEqual(get_planner_provider(config).model, "")
+        self.assertEqual(get_executor_provider(config).model, "")
+
+    def test_agy_without_model_override_uses_gemini_defaults(self):
+        config_toml = '''
+[providers]
+planner = "agy"
+executor = "agy"
+'''
+        with tempfile.NamedTemporaryFile("w", suffix=".toml") as config_file, patch.dict(
+            os.environ,
+            {"USE_MOCK_PRIMITIVES": "false", "AGY_PROPOSAL_MODEL": "", "AGY_MODEL": ""},
+            clear=False,
+        ):
+            config_file.write(config_toml)
+            config_file.flush()
+            config = load_config(config_file.name)
+
+        self.assertEqual(config.planner_model, "gemini-3.6-flash-low")
+        self.assertEqual(config.executor_model, "gemini-3.8-flash-medium")
+
     def test_factories_support_only_harnesses(self):
         self.assertIsInstance(get_planner_provider(AgentConfig(planner_provider="mock")), MockPlannerProvider)
         self.assertIsInstance(get_planner_provider(AgentConfig(planner_provider="agy")), AGYPlannerProvider)
@@ -71,8 +113,18 @@ class TestConfigAndProviders(unittest.TestCase):
             actions = PiPlannerProvider(model="qwen").propose_actions("State", "Goal", n=1)
         self.assertEqual(actions, ["Inspect the repository"])
         command = run.call_args.args[0]
-        self.assertEqual(command[:4], ["pi", "--no-session", "--model", "qwen"])
-        self.assertIn("ONE small, atomic next action", command[-1])
+        self.assertEqual(command[:2], ["pi", "--no-session"])
+        model_index = command.index("--model")
+        self.assertEqual(command[model_index + 1], "qwen")
+        self.assertIn("multiple coordinated operations", command[-1])
+
+    def test_pi_planner_omits_model_flag_without_override(self):
+        with patch.dict(os.environ, {"USE_MOCK_PRIMITIVES": "false"}), patch(
+            "agent.providers.subprocess.run",
+            return_value=MagicMock(returncode=0, stdout="Inspect the repository\n", stderr=""),
+        ) as run:
+            PiPlannerProvider().propose_actions("State", "Goal", n=1)
+        self.assertNotIn("--model", run.call_args.args[0])
 
     def test_pi_executor_invokes_harness_in_workspace(self):
         with tempfile.TemporaryDirectory() as workspace, patch(

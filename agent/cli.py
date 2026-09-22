@@ -655,6 +655,7 @@ def interactive(
             console.print("[dim]Skipping execution of this action.[/dim]")
             exec_res = {
                 "success": True,
+                "skipped": True,
                 "stdout": "Execution skipped by user.",
                 "stderr": "",
                 "returncode": 0,

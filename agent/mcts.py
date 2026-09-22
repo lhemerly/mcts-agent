@@ -605,7 +605,11 @@ def review_action(
     changed_sample = changed_files[:8] + changed_files[-5:] if len(changed_files) > 13 else changed_files
     command = str(execution_result.get("command", ""))
     obs_lines: list[str] = []
-    if execution_result.get("success"):
+    if execution_result.get("skipped"):
+        execution_result["verified"] = False
+        execution_result["verification_confidence"] = 0.0
+        obs_lines.append(f"Action '{action}' was skipped and is not verified.")
+    elif execution_result.get("success"):
         evidence = (
             f"Command:\n{command[-4000:]}\n"
             f"Output:\n{str(execution_result.get('stdout', ''))[-4000:]}\n"
@@ -841,6 +845,7 @@ def run_closed_loop_agent(
             print("[closed-loop] Execution skipped (--no-execute mode).")
             exec_result = {
                 "success": True,
+                "skipped": True,
                 "stdout": "Dry run (execution skipped).",
                 "stderr": "",
                 "returncode": 0,

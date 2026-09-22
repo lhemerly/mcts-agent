@@ -31,10 +31,12 @@ class AgentConfig:
     executor_provider: str = "agy"     # agy | pi | mock
 
     # Planner settings
-    planner_model: str = "gemini-3.6-flash-low"
+    # Empty means "use the selected harness's configured default". AGY's
+    # fallback is applied when its provider is instantiated.
+    planner_model: str = ""
 
     # Executor settings
-    executor_model: str = "gemini-3.8-flash-medium"
+    executor_model: str = ""
     executor_timeout: int = 1800
 
     # ── Tree expansion settings ──────────────────────────────────────────────
@@ -114,20 +116,35 @@ def load_config(
         or "agy"
     )
 
-    planner_model = (
-        cli_overrides.get("planner_model")
-        or os.getenv("AGY_PROPOSAL_MODEL")
-        or os.getenv("MCTS_PLANNER_MODEL")
-        or planner_sec.get("model")
-        or "gemini-3.6-flash-low"
-    )
+    def _model_cfg(
+        key: str,
+        generic_env: str,
+        agy_env: str,
+        section: dict[str, Any],
+        provider: str,
+        agy_default: str,
+    ) -> str:
+        """Resolve model overrides without replacing Pi's configured default."""
+        if key in cli_overrides:
+            return str(cli_overrides[key])
+        generic_value = os.getenv(generic_env)
+        if generic_value is not None:
+            return generic_value
+        if provider.lower() == "agy":
+            agy_value = os.getenv(agy_env)
+            if agy_value:
+                return agy_value
+            return str(section.get("model") or agy_default)
+        # An empty TOML value tells Pi not to receive a --model flag.
+        return str(section.get("model", ""))
 
-    executor_model = (
-        cli_overrides.get("executor_model")
-        or os.getenv("AGY_MODEL")
-        or os.getenv("MCTS_EXECUTOR_MODEL")
-        or executor_sec.get("model")
-        or "gemini-3.8-flash-medium"
+    planner_model = _model_cfg(
+        "planner_model", "MCTS_PLANNER_MODEL", "AGY_PROPOSAL_MODEL",
+        planner_sec, str(planner_provider), "gemini-3.6-flash-low",
+    )
+    executor_model = _model_cfg(
+        "executor_model", "MCTS_EXECUTOR_MODEL", "AGY_MODEL",
+        executor_sec, str(executor_provider), "gemini-3.8-flash-medium",
     )
 
     timeout_raw = (

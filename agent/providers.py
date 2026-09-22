@@ -57,12 +57,11 @@ _MOCK_ACTION_POOL: list[str] = [
     "Summarise findings and propose next step",
 ]
 
-_ATOMIC_ACTION_RULES = (
-    "Propose ONE small, atomic next action with ONE observable result. "
-    "Limit it to one file edit or one short workspace operation. "
-    "Do not combine steps with 'and', 'then', or a sequence of tasks. "
-    "For example, 'Clone the repository' and 'Install dependencies' are two "
-    "separate actions. Do not propose the entire feature or a multi-file build."
+_ACTION_SCOPE_RULES = (
+    "Propose ONE distinct, executable next action or implementation plan. "
+    "It may include multiple coordinated operations or file changes when they "
+    "are needed to make meaningful progress. Keep it within a clear, bounded "
+    "scope that an executor harness can complete in one run."
 )
 
 
@@ -155,8 +154,7 @@ class AGYPlannerProvider(BasePlannerProvider):
                 {existing_actions_str}
 
                 Instructions:
-                - {_ATOMIC_ACTION_RULES}
-                - Choose a concrete step that can be completed and checked before the next step is planned.
+                - {_ACTION_SCOPE_RULES}
                 - {random.choice(_CREATIVE_STRATEGIES)}
                 - If the obvious answer repeats an action above, brainstorm alternatives privately and output the second or third best distinct action.
                 - Do NOT duplicate, overlap, or rephrase any action listed above (explored or batch).
@@ -207,11 +205,11 @@ class AGYPlannerProvider(BasePlannerProvider):
 
 
 _CREATIVE_STRATEGIES: list[str] = [
-    "Propose a direct, practical next action to make immediate progress toward the goal.",
-    "Brainstorm three atomic next actions privately; output the SECOND best action, not the obvious first choice.",
-    "Brainstorm four atomic next actions privately; output the THIRD best action, not the obvious first choice.",
-    "Go crazy and think outside the box: find an unconventional but executable tiny step.",
-    "Switch perspective to a tester or maintainer and choose a different concrete next step.",
+    "Propose a direct, practical action plan to make meaningful progress toward the goal.",
+    "Brainstorm three distinct action plans privately; output the SECOND best plan, not the obvious first choice.",
+    "Brainstorm four distinct action plans privately; output the THIRD best plan, not the obvious first choice.",
+    "Go crazy and think outside the box: find an unconventional but executable approach.",
+    "Switch perspective to a tester or maintainer and choose a different concrete approach.",
 ]
 
 
@@ -268,8 +266,7 @@ class PiPlannerProvider(BasePlannerProvider):
                 {existing_actions_str}
 
                 Instructions:
-                - {_ATOMIC_ACTION_RULES}
-                - Choose a concrete step that can be completed and checked before the next step is planned.
+                - {_ACTION_SCOPE_RULES}
                 - {random.choice(_CREATIVE_STRATEGIES)}
                 - If the obvious answer repeats an action above, brainstorm alternatives privately and output the second or third best distinct action.
                 - Do NOT duplicate, overlap, or rephrase any action listed above (explored or batch).
@@ -362,13 +359,13 @@ class AGYExecutorProvider(BaseExecutorProvider):
             {abs_workspace}
 
             Task:
-            Execute ONLY this specific immediate action now in this workspace:
+            Execute this planned action in this workspace:
             >>> {action.strip()} <<<
 
             All files created or modified MUST be written inside {abs_workspace}.
             Apply the necessary edits, write the code, or run the commands required for this action.
             Always execute commands synchronously to full completion in the foreground; do not leave background tasks running.
-            Do NOT attempt to execute future hypothetical steps beyond this immediate action.
+            Complete the requested scope, but do not expand into unrelated future work.
         """)
 
         print(f"\n{'='*60}")
@@ -441,13 +438,13 @@ class PiExecutorProvider(BaseExecutorProvider):
             {abs_workspace}
 
             Task:
-            Execute ONLY this specific immediate action now in this workspace:
+            Execute this planned action in this workspace:
             >>> {action.strip()} <<<
 
             All files created or modified MUST be written inside {abs_workspace}.
             Apply the necessary edits, write the code, or run the commands required for this action.
             Always execute commands synchronously to full completion in the foreground; do not leave background tasks running.
-            Do NOT attempt to execute future hypothetical steps beyond this immediate action.
+            Complete the requested scope, but do not expand into unrelated future work.
         """)
 
         print(f"\n{'='*60}")
@@ -510,7 +507,7 @@ def get_planner_provider(config: AgentConfig) -> BasePlannerProvider:
     provider = config.planner_provider.lower()
     match provider:
         case "agy":
-            return AGYPlannerProvider(model=config.planner_model)
+            return AGYPlannerProvider(model=config.planner_model or "gemini-3.6-flash-low")
         case "pi":
             return PiPlannerProvider(model=config.planner_model)
         case "mock":
@@ -532,7 +529,10 @@ def get_executor_provider(config: AgentConfig) -> BaseExecutorProvider:
     provider = config.executor_provider.lower()
     match provider:
         case "agy":
-            return AGYExecutorProvider(model=config.executor_model, timeout=config.executor_timeout)
+            return AGYExecutorProvider(
+                model=config.executor_model or "gemini-3.8-flash-medium",
+                timeout=config.executor_timeout,
+            )
         case "pi":
             return PiExecutorProvider(model=config.executor_model, timeout=config.executor_timeout)
         case "mock":

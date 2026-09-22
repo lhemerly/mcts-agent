@@ -618,8 +618,8 @@ class TestMCTSLoop(unittest.TestCase):
                     config=cfg,
                 )
             self.assertEqual(summary["total_steps_run"], 2)
-            # Second step should not have triggered a scramble (threshold=0.0)
-            self.assertFalse(summary["steps"][1].get("scramble_triggered", True))
+            self.assertTrue(summary["steps"][0]["execution"]["skipped"])
+            self.assertFalse(summary["steps"][0]["execution"]["verified"])
 
     def test_review_does_not_equate_exit_zero_with_action_completion(self):
         from unittest.mock import patch
@@ -633,6 +633,19 @@ class TestMCTSLoop(unittest.TestCase):
         self.assertFalse(result["verified"])
         self.assertIn("action not verified", observation)
         self.assertIn("npm install react", observation)
+
+    def test_review_does_not_verify_skipped_execution(self):
+        from unittest.mock import patch
+        from agent.mcts import review_action
+
+        result = {"success": True, "skipped": True, "stdout": "dry run", "returncode": 0}
+        with tempfile.TemporaryDirectory() as tmpdir, patch(
+            "agent.mcts.check_action_execution", side_effect=AssertionError("skipped action verified")
+        ):
+            observation = review_action("Edit a file", result, tmpdir)
+        self.assertFalse(result["verified"])
+        self.assertEqual(result["verification_confidence"], 0.0)
+        self.assertIn("was skipped and is not verified", observation)
 
     def test_execution_reports_files_changed_by_command(self):
         from unittest.mock import patch
@@ -690,7 +703,7 @@ class TestMCTSLoop(unittest.TestCase):
                 actions_per_node=2,
                 expansion_depth=1,
                 early_stop_noul=False,
-                execute=False,
+                execute=True,
                 log_dir=tmpdir,
                 config=cfg,
             )
@@ -748,8 +761,8 @@ class TestProposeActions(unittest.TestCase):
             self.assertEqual(first_cmd[2], "custom-proposal-model")
             first_prompt = first_cmd[4]
             self.assertIn("(No actions proposed yet for this expansion)", first_prompt)
-            self.assertIn("ONE small, atomic next action", first_prompt)
-            self.assertIn("two separate actions", first_prompt)
+            self.assertIn("multiple coordinated operations", first_prompt)
+            self.assertNotIn("atomic next action", first_prompt)
 
             second_cmd = mock_run.call_args_list[1][0][0]
             second_prompt = second_cmd[4]

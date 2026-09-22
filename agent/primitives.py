@@ -136,11 +136,11 @@ def batch_check_validity(
         index_to_action[key] = action
         questions[key] = Noul(
             instructions=(
-                f"Given the current state context, is this one small, atomic, "
-                f"logically executable action relevant to making progress? "
-                f"Answer no if it bundles separate operations (for example, "
-                f"cloning a repository and installing dependencies) or asks for "
-                f"an entire feature instead of one checkable step.\n"
+                f"Given the current state context, is this a feasible, clearly "
+                f"scoped action plan that is relevant to making progress? "
+                f"Multi-step or multi-file work is acceptable when it belongs to "
+                f"the same requested outcome. Answer no only if it is unrelated, "
+                f"internally contradictory, or impractically broad.\n"
                 f"Proposed action: {action}"
             )
         )
