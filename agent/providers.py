@@ -276,9 +276,9 @@ class PiPlannerProvider(BasePlannerProvider):
                 - Output ONLY the single action sentence, with no commentary, numbering, bullets, or preamble.
             """)
 
-            cmd = ["pi", "--no-session", "--print", prompt]
+            cmd = ["pi", "--no-session", "--no-tools", "--print", prompt]
             if self.model:
-                cmd = ["pi", "--no-session", "--model", self.model, "--print", prompt]
+                cmd = ["pi", "--no-session", "--no-tools", "--model", self.model, "--print", prompt]
 
             try:
                 result = subprocess.run(
