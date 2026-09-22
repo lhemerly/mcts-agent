@@ -596,6 +596,7 @@ def interactive(
     if not initial_state:
         initial_state = f"Starting state for goal: {goal}"
 
+    current_state = initial_state
     try:
         current_cwd = os.getcwd()
     except Exception:
