@@ -74,7 +74,7 @@ Large language models (LLMs) are System Two text-generators. When software needs
 
 | Primitive | Role in MCTS | Mechanism & Benefit |
 | :--- | :--- | :--- |
-| **`Noul`** | **Execution Checks** & **Early Stopping** | Evaluates whether a proposed command matches the selected action, whether execution evidence supports completion, and whether the overall goal is complete. It does not prune proposed search paths. |
+| **`Noul`** | **Execution Checks** & **Early Stopping** | Evaluates whether execution evidence supports completion of the selected action and whether the overall goal is complete. It does not prune proposed search paths. |
 | **`Choice`** | **Action Priors** & **Dynamic Branching** | Returns normalized probability distributions across discrete candidates. Assigns initial policy prior probabilities $P(s, a)$ used in the PUCT formula. Also selects optimal branching factor from primes ($2, 3, 5, 7, 11, 13$). |
 | **`Score`** | **State Value Heuristic** | Evaluates states on a continuous 1–10 rubric. Replaces costly, random Monte Carlo rollouts with a fast discriminative heuristic value estimate $V(s)$. |
 
