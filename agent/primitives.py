@@ -1,11 +1,8 @@
 """
 primitives.py — Wrappers around the TypeSafe SDK's discriminative primitives.
 
-Three public functions map cleanly onto the MCTS stages:
-
-  • batch_check_validity(state, actions) → Noul   (Pruning / Step 2)
-      All candidate actions are evaluated in a SINGLE system_one() call,
-      each as its own Noul question key — no per-action round-trips.
+The search uses Choice for priors and Score for hypothetical states. Noul is
+used for execution checks and task completion, not for pruning proposed paths.
 
   • get_action_priors(state, actions)   → Choice  (Prioritise / Step 2)
   • evaluate_state(goal, state)         → Score   (Simulation / Step 3)
@@ -84,12 +81,8 @@ def _get_client() -> "TypeSafeClient":
 # ── Mock helpers ───────────────────────────────────────────────────────────────
 
 def _mock_batch_check_validity(actions: list[str]) -> dict[str, tuple[bool, float]]:
-    """Return random validity decisions (biased toward valid) for all actions."""
-    results: dict[str, tuple[bool, float]] = {}
-    for action in actions:
-        confidence = random.uniform(0.5, 1.0)
-        results[action] = (confidence >= NOUL_VALIDITY_THRESHOLD, confidence)
-    return results
+    """Keep mock search deterministic; rejection behavior is tested explicitly."""
+    return {action: (True, 1.0) for action in actions}
 
 
 def _mock_get_action_priors(actions: list[str]) -> dict[str, float]:
@@ -143,8 +136,11 @@ def batch_check_validity(
         index_to_action[key] = action
         questions[key] = Noul(
             instructions=(
-                f"Given the current state context, is the following proposed "
-                f"action logically executable and relevant to making progress?\n"
+                f"Given the current state context, is this a feasible, clearly "
+                f"scoped action plan that is relevant to making progress? "
+                f"Multi-step or multi-file work is acceptable when it belongs to "
+                f"the same requested outcome. Answer no only if it is unrelated, "
+                f"internally contradictory, or impractically broad.\n"
                 f"Proposed action: {action}"
             )
         )
@@ -354,6 +350,65 @@ def check_task_completion(
         return False, 0.0
 
 
+def check_action_execution(
+    action: str,
+    evidence: str,
+    *,
+    mock: bool | None = None,
+) -> tuple[bool, float]:
+    """Check whether execution evidence supports completion of this exact action."""
+    if mock is None:
+        mock = _is_mock_enabled()
+    if mock:
+        return True, 1.0
+    try:
+        response = _get_client().system_one(
+            state={"requested_action": action, "execution_evidence": evidence},
+            questions={"action_completed": Noul(instructions=(
+                "Does the execution evidence show that the exact requested action "
+                "was completed? A zero exit code only shows that commands ran. "
+                "Cloning is sufficient when the action requests cloning; installing "
+                "dependencies is sufficient when the action requests installation. "
+                "Reject unrelated edits, placeholder results, and missing requested work."
+            ))},
+        )
+        confidence: float = response.nouls["action_completed"].noul
+        return confidence >= NOUL_VALIDITY_THRESHOLD, confidence
+    except (TypeSafeAPIError, RuntimeError) as exc:
+        print(f"[primitives] Action verification error: {exc}.")
+        return False, 0.0
+
+
+def check_command_alignment(
+    action: str,
+    command: str,
+    *,
+    mock: bool | None = None,
+) -> tuple[bool, float]:
+    """Reject generated commands that do not directly implement the chosen action."""
+    if mock is None:
+        mock = _is_mock_enabled()
+    if mock:
+        return True, 1.0
+    try:
+        response = _get_client().system_one(
+            state={"requested_action": action, "proposed_shell_command": command[:12000]},
+            questions={"aligned": Noul(instructions=(
+                "Would these commands directly and completely carry out the exact "
+                "requested action in the workspace? Judge against the action itself. "
+                "A git clone is appropriate for a clone action; installation commands "
+                "are appropriate for an install action. If the action requests both "
+                "cloning and installing, a script that only clones is incomplete. "
+                "Reject unrelated work, placeholder data, and incomplete scripts. "
+                "Answer no when the script's effect cannot be determined."
+            ))},
+        )
+        confidence: float = response.nouls["aligned"].noul
+        return confidence >= NOUL_VALIDITY_THRESHOLD, confidence
+    except (TypeSafeAPIError, RuntimeError) as exc:
+        print(f"[primitives] Command alignment check error: {exc}.")
+        return False, 0.0
+
 def select_simulation_depth(
     state: str,
     goal: str,
@@ -474,5 +529,3 @@ def discriminative_choose_best_action(
     except TypeSafeAPIError as exc:
         print(f"[primitives] Choice decision error: {exc}. Falling back to MCTS robust child.")
         return max(eval_candidates, key=lambda c: (c.visits, c.average_value))
-
-

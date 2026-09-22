@@ -216,7 +216,7 @@ class TestDeepExpand(unittest.TestCase):
             logger.emit_init(root)
             _deep_expand(root, "Goal", width=2, remaining_depth=1, logger=logger)
 
-            # Noul fallback guarantees at least 1 child even if all pruned
+            # Every proposed action is kept for search.
             self.assertGreater(len(root.children), 0)
             self.assertLessEqual(len(root.children), 2)
             for child in root.children:
@@ -233,7 +233,7 @@ class TestDeepExpand(unittest.TestCase):
             logger.emit_init(root)
             _deep_expand(root, "Goal", width=2, remaining_depth=2, logger=logger)
 
-            # At least one child must survive (Noul falls back to candidates on full prune)
+            # Every proposed action is kept for search.
             self.assertGreater(len(root.children), 0)
             leaves = root.subtree_leaves()
             # At most 4 leaves (2^2), at least 1
@@ -243,8 +243,20 @@ class TestDeepExpand(unittest.TestCase):
                 self.assertEqual(leaf.depth, 2)
                 self.assertGreater(leaf.visits, 0)
 
+    def test_low_action_confidence_does_not_prune_initial_tree(self):
+        from unittest.mock import patch
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            logger = self._make_logger(tmpdir)
+            root = Node(state="Current state")
+            with patch("agent.mcts._propose_actions", return_value=["First small step"]), patch(
+                "agent.primitives.batch_check_validity", side_effect=AssertionError("unexpected gate")
+            ):
+                _deep_expand(root, "Goal", width=1, remaining_depth=1, logger=logger)
+        self.assertEqual([child.action_taken for child in root.children], ["First small step"])
+
     def test_deep_expand_depth3_leaf_count(self):
-        """Width=3, depth=3 → between 1 and 27 leaves (Noul prune is stochastic)."""
+        """Width=3, depth=3 materializes proposed paths."""
         with tempfile.TemporaryDirectory() as tmpdir:
             logger = self._make_logger(tmpdir)
             root = Node(state="Root", depth=0)
@@ -267,6 +279,28 @@ class TestDeepExpand(unittest.TestCase):
             # All proposed actions should be different from the explored one
             for child in root.children:
                 self.assertNotEqual(child.action_taken, explored[0])
+
+    def test_deep_expand_shares_explored_actions_across_siblings(self):
+        from unittest.mock import patch
+
+        seen = []
+
+        def propose(state, goal, n, *, explored_actions, config):
+            seen.append((state, list(explored_actions)))
+            if state == "Root":
+                return ["Step A", "Step B"]
+            if state.endswith("Step A"):
+                return ["Step C"]
+            self.assertIn("Step C", explored_actions)
+            return ["Step D"]
+
+        with tempfile.TemporaryDirectory() as tmpdir, patch(
+            "agent.mcts._propose_actions", side_effect=propose
+        ):
+            root = Node(state="Root")
+            _deep_expand(root, "Goal", width=2, remaining_depth=2, logger=self._make_logger(tmpdir))
+        self.assertEqual([child.action_taken for child in root.children], ["Step A", "Step B"])
+        self.assertIn("Step C", seen[-1][1])
 
 
 # ── Tree Reuse Tests ───────────────────────────────────────────────────────────
@@ -307,6 +341,13 @@ class TestTreeReuse(unittest.TestCase):
         for child in new_root.children:
             self.assertEqual(child.depth, 1)
 
+    def test_reroot_rebases_surviving_states_on_observation(self):
+        root = self._build_simple_tree()
+        new_root = _reroot(root.children[0], "created file", grounded_state="Observed workspace")
+        self.assertEqual(new_root.state, "Observed workspace")
+        for child in new_root.children:
+            self.assertEqual(child.state, f"Observed workspace\n[Action taken]: {child.action_taken}")
+
     def test_collect_vocab_by_depth(self):
         root = self._build_simple_tree()
         vocab = root.collect_actions_by_depth()
@@ -327,6 +368,15 @@ class TestTreeReuse(unittest.TestCase):
         n_added = _recombine_paths(new_root, vocab, n_paths=4, path_depth=1)
         self.assertGreater(n_added, 0)
         self.assertGreater(len(new_root.subtree_leaves()), initial_leaves)
+
+    def test_recombine_paths_does_not_duplicate_existing_path(self):
+        from unittest.mock import patch
+        root = self._build_simple_tree()
+        new_root = _reroot(root.children[0], "obs")
+        with patch("agent.mcts.random.choice", return_value="Step A1"):
+            added = _recombine_paths(new_root, {2: ["Step A1"]}, n_paths=4, path_depth=1)
+        self.assertEqual(added, 0)
+        self.assertEqual(len(new_root.children), 2)
 
     def test_rescore_leaves_updates_values(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -378,6 +428,64 @@ class TestTreeReuse(unittest.TestCase):
 # ── Full MCTS Loop Tests ───────────────────────────────────────────────────────
 
 class TestMCTSLoop(unittest.TestCase):
+    def test_reused_tree_selects_without_proposing_actions(self):
+        from unittest.mock import patch
+
+        root = Node(state="Observed state")
+        child = Node(
+            state="Observed state\n[Action taken]: Existing action",
+            parent=root,
+            action_taken="Existing action",
+            depth=1,
+            visits=1,
+            value_sum=8.0,
+        )
+        root.children.append(child)
+        with tempfile.TemporaryDirectory() as tmpdir, patch(
+            "agent.mcts._propose_actions", side_effect=AssertionError("unexpected proposal")
+        ):
+            best, _ = run_mcts(
+                root, "Goal", iterations=2, reuse_tree=True,
+                early_stop_noul=False, log_dir=tmpdir,
+            )
+        self.assertIs(best, child)
+        self.assertEqual(len(root.children), 1)
+        self.assertEqual(child.visits, 1)
+
+    def test_search_stops_when_planner_returns_no_actions(self):
+        from unittest.mock import patch
+
+        root = Node(state="Current state")
+        with tempfile.TemporaryDirectory() as tmpdir, patch(
+            "agent.mcts._propose_actions", return_value=[]
+        ):
+            best, _ = run_mcts(root, "Goal", iterations=10, log_dir=tmpdir)
+        self.assertIs(best, root)
+        self.assertEqual(root.visits, 1)
+
+    def test_no_planned_action_has_distinct_stop_reason(self):
+        from unittest.mock import patch
+
+        with tempfile.TemporaryDirectory() as tmpdir, patch(
+            "agent.mcts._propose_actions", return_value=[]
+        ):
+            summary = run_closed_loop_agent(
+                "Goal", "Initial", max_steps=2, iterations_per_step=10,
+                execute=False, log_dir=tmpdir, workspace_dir=tmpdir,
+            )
+        self.assertEqual(summary["stop_reason"], "no_action_generated")
+        self.assertEqual(summary["total_steps_run"], 0)
+
+    def test_initial_state_includes_workspace_inventory(self):
+        from agent.mcts import _workspace_inventory
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            os.mkdir(os.path.join(tmpdir, "mcts-agent"))
+            with open(os.path.join(tmpdir, "visualizer.html"), "w", encoding="utf-8") as handle:
+                handle.write("<html></html>")
+            self.assertIn("mcts-agent/", _workspace_inventory(tmpdir))
+            self.assertIn("visualizer.html", _workspace_inventory(tmpdir))
+
     def test_run_mcts_mock_width2_depth1(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Node(state="Test search state")
@@ -392,12 +500,28 @@ class TestMCTSLoop(unittest.TestCase):
             )
             self.assertIsNotNone(best_node)
             self.assertTrue(os.path.exists(log_path))
-            # Noul fallback guarantees at least 1 child
+            # Mock planner supplies immediate actions.
             self.assertGreater(len(root.children), 0)
             self.assertLessEqual(len(root.children), 2)
 
+    def test_first_step_is_chosen_even_when_every_path_scores_low(self):
+        from unittest.mock import patch
+
+        root = Node(state="Starting state")
+        with tempfile.TemporaryDirectory() as tmpdir, patch(
+            "agent.mcts._propose_actions",
+            return_value=["Inspect existing HTML", "Inspect tree log", "Create a sketch"],
+        ), patch("agent.mcts.evaluate_state", return_value=1.1):
+            best, _ = run_mcts(
+                root, "Long horizon goal", iterations=0,
+                actions_per_node=3, expansion_depth=1,
+                early_stop_noul=False, log_dir=tmpdir,
+            )
+        self.assertIn(best.action_taken, [child.action_taken for child in root.children])
+        self.assertEqual(len(root.children), 3)
+
     def test_run_mcts_deep_tree_leaf_count(self):
-        """width=2, depth=2 → between 1 and 4 leaf nodes (Noul prune is stochastic)."""
+        """width=2, depth=2 → up to 4 leaf paths."""
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Node(state="Test")
             run_mcts(
@@ -444,7 +568,7 @@ class TestMCTSLoop(unittest.TestCase):
                 log_dir=tmpdir,
             )
             self.assertIsNotNone(best_node)
-            # 2-wide, 2-deep = at most 4 leaves (Noul prune is stochastic)
+            # 2-wide, 2-deep = at most 4 leaves.
             leaves = root.subtree_leaves()
             self.assertGreater(len(leaves), 0)
             self.assertLessEqual(len(leaves), 4)
@@ -477,23 +601,86 @@ class TestMCTSLoop(unittest.TestCase):
                 reuse_score_threshold=0.0,  # always reuse for this test
                 n_recombined_paths=4,
                 expansion_width=2,
-                expansion_depth=1,
+                expansion_depth=2,
             )
-            summary = run_closed_loop_agent(
-                goal="Two-step goal",
-                initial_state="Initial",
-                max_steps=2,
-                iterations_per_step=0,
-                actions_per_node=2,
-                expansion_depth=1,
-                early_stop_noul=False,
-                execute=False,
-                log_dir=tmpdir,
-                config=cfg,
-            )
+            from unittest.mock import patch
+            with patch("agent.mcts._recombine_paths", side_effect=AssertionError("unneeded recombination")):
+                summary = run_closed_loop_agent(
+                    goal="Two-step goal",
+                    initial_state="Initial",
+                    max_steps=2,
+                    iterations_per_step=0,
+                    actions_per_node=2,
+                    expansion_depth=2,
+                    early_stop_noul=False,
+                    execute=False,
+                    log_dir=tmpdir,
+                    config=cfg,
+                )
             self.assertEqual(summary["total_steps_run"], 2)
-            # Second step should not have triggered a scramble (threshold=0.0)
-            self.assertFalse(summary["steps"][1].get("scramble_triggered", True))
+            self.assertTrue(summary["steps"][0]["execution"]["skipped"])
+            self.assertFalse(summary["steps"][0]["execution"]["verified"])
+
+    def test_review_does_not_equate_exit_zero_with_action_completion(self):
+        from unittest.mock import patch
+        from agent.mcts import review_action
+
+        result = {"success": True, "returncode": 0, "stdout": "", "command": "npm install react"}
+        with tempfile.TemporaryDirectory() as tmpdir, patch(
+            "agent.mcts.check_action_execution", return_value=(False, 0.1)
+        ):
+            observation = review_action("Implement SVG animation", result, tmpdir)
+        self.assertFalse(result["verified"])
+        self.assertIn("action not verified", observation)
+        self.assertIn("npm install react", observation)
+
+    def test_review_does_not_verify_skipped_execution(self):
+        from unittest.mock import patch
+        from agent.mcts import review_action
+
+        result = {"success": True, "skipped": True, "stdout": "dry run", "returncode": 0}
+        with tempfile.TemporaryDirectory() as tmpdir, patch(
+            "agent.mcts.check_action_execution", side_effect=AssertionError("skipped action verified")
+        ):
+            observation = review_action("Edit a file", result, tmpdir)
+        self.assertFalse(result["verified"])
+        self.assertEqual(result["verification_confidence"], 0.0)
+        self.assertIn("was skipped and is not verified", observation)
+
+    def test_execution_reports_files_changed_by_command(self):
+        from unittest.mock import patch
+        from agent.mcts import execute_single_action
+
+        class WritingHarness:
+            def execute_action(self, action, goal, workspace_dir):
+                with open(os.path.join(workspace_dir, "artifact.txt"), "w", encoding="utf-8") as handle:
+                    handle.write("content")
+                return {"success": True, "stdout": "done", "stderr": "", "returncode": 0}
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with patch("agent.mcts.get_executor_provider", return_value=WritingHarness()):
+                result = execute_single_action(
+                    action="Create artifact", goal="Create artifact", workspace_dir=tmpdir,
+                )
+        self.assertTrue(result["success"])
+        self.assertEqual(result["changed_files"], ["artifact.txt"])
+
+    def test_unverified_execution_does_not_reuse_hypothetical_tree(self):
+        from unittest.mock import patch
+        from agent.config import AgentConfig
+
+        cfg = AgentConfig(planner_provider="mock", executor_provider="mock", expansion_depth=2)
+        failed = {"success": False, "returncode": 1, "stderr": "command failed", "stdout": ""}
+        with tempfile.TemporaryDirectory() as tmpdir, patch(
+            "agent.mcts.execute_single_action", return_value=failed
+        ), patch("agent.mcts._reroot", side_effect=AssertionError("failed action rerooted")):
+            summary = run_closed_loop_agent(
+                goal="Goal", initial_state="Initial", max_steps=2,
+                iterations_per_step=0, actions_per_node=2,
+                early_stop_noul=False, log_dir=tmpdir, config=cfg,
+            )
+        self.assertEqual(summary["total_steps_run"], 2)
+        self.assertFalse(summary["steps"][0]["execution"]["verified"])
 
     def test_closed_loop_agent_scramble_when_all_low_score(self):
         """With threshold=10.0 (impossible to meet), scramble is always triggered."""
@@ -516,7 +703,7 @@ class TestMCTSLoop(unittest.TestCase):
                 actions_per_node=2,
                 expansion_depth=1,
                 early_stop_noul=False,
-                execute=False,
+                execute=True,
                 log_dir=tmpdir,
                 config=cfg,
             )
@@ -574,6 +761,8 @@ class TestProposeActions(unittest.TestCase):
             self.assertEqual(first_cmd[2], "custom-proposal-model")
             first_prompt = first_cmd[4]
             self.assertIn("(No actions proposed yet for this expansion)", first_prompt)
+            self.assertIn("multiple coordinated operations", first_prompt)
+            self.assertNotIn("atomic next action", first_prompt)
 
             second_cmd = mock_run.call_args_list[1][0][0]
             second_prompt = second_cmd[4]

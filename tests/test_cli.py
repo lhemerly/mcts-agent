@@ -1,5 +1,6 @@
 """Tests for MCTS Agent CLI interface (Typer & Rich)."""
 import json
+import io
 import os
 import re
 import sys
@@ -10,7 +11,8 @@ _REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _REPO_ROOT not in sys.path:
     sys.path.insert(0, _REPO_ROOT)
 
-from agent.cli import app
+from agent.cli import app, _render_summary
+from rich.console import Console
 from main import app as main_app
 
 runner = CliRunner()
@@ -28,6 +30,15 @@ class TestCLI(unittest.TestCase):
 
     def test_app_exposed_in_main(self):
         self.assertIs(app, main_app)
+
+    def test_no_action_summary_does_not_claim_max_steps(self):
+        output = io.StringIO()
+        _render_summary(Console(file=output, width=120, no_color=True), {
+            "goal": "Goal", "completed": False, "stop_reason": "no_action_generated",
+            "total_steps_run": 0, "final_state": "Initial", "steps": [],
+        })
+        self.assertIn("NO ACTION GENERATED", output.getvalue())
+        self.assertNotIn("MAX STEPS REACHED", output.getvalue())
 
     def test_help_commands(self):
         result = runner.invoke(app, ["--help"])

@@ -17,12 +17,10 @@ Phase B — Tree Reuse + Action Vocabulary Recombination (between closed-loop st
     2. Harvest the action vocabulary (all action_taken values by depth) from the
        *entire* original tree before discarding sibling branches.
     3. Keep the chosen node's original subtree (W^(D-1) leaf paths) as survivors.
-    4. Randomly assemble `n_recombined_paths` new paths from the vocabulary —
-       actions from sibling/cousin branches can now appear under the new root,
-       enabling "thinking out of the box" without additional LLM proposal calls.
-    5. Rescore all surviving + recombined leaf nodes (Score calls only, no proposals).
-    6. If max(rescore) ≥ reuse_score_threshold: PUCT continues from the existing tree.
-       If all < threshold (scramble): prune everything, rebuild fresh.
+    4. Ground surviving states in the execution observation and rescore them.
+    5. If a survivor meets the reuse threshold, choose from that tree directly.
+       Otherwise assemble unique cross-branch paths from the vocabulary and score
+       them. Rebuild only if no actionable path reaches the threshold.
 
 Every event is recorded by an MCTSLogger and saved as a JSON log
 that the MCTS visualizer can replay.
@@ -42,7 +40,7 @@ from agent.logger import MCTSLogger, save_agent_summary
 from agent.node import Node
 from agent.primitives import (
     NOUL_COMPLETION_THRESHOLD,
-    batch_check_validity,
+    check_action_execution,
     check_task_completion,
     discriminative_choose_best_action,
     evaluate_state,
@@ -125,15 +123,15 @@ def _deep_expand(
 
     At each level:
       1. Propose `width` candidate actions (with full explored_actions context).
-      2. Noul-prune invalid actions.
-      3. Assign Choice priors.
-      4. Create child nodes and recurse.
-      5. At the leaf level (remaining_depth == 0), score the node and store the value.
+      2. Assign Choice priors to every proposed action.
+      3. Create child nodes and recurse.
+      4. At the leaf level (remaining_depth == 0), score the node and store the value.
 
     This replaces both the old flat `_expand` and the phantom `_simulate` rollout.
     All nodes in the tree are real, scored, and backprop-eligible.
     """
-    explored_actions = explored_actions or []
+    if explored_actions is None:
+        explored_actions = []
 
     if remaining_depth == 0:
         # Leaf: score and record
@@ -151,31 +149,27 @@ def _deep_expand(
     )
     logger.emit_candidates(candidates)
 
-    # Batched Noul gate
-    validity = batch_check_validity(node.state, candidates)
-    valid_actions: list[str] = []
+    if not candidates:
+        print("  [expand] Planner returned no actions; scoring the current path.")
+        val = evaluate_state(goal, node.state)
+        node.visits = 1
+        node.value_sum = val
+        logger.emit_score(node, val)
+        return
+
+    priors = get_action_priors(node.state, candidates)
+
+    # Share the action vocabulary across sibling branches in this expansion.
+    # Descendants should not ask the planner for actions already proposed elsewhere.
+    explored_actions.extend(candidates)
+
     for action in candidates:
-        is_valid, conf = validity.get(action, (False, 0.0))
-        symbol = "✓" if is_valid else "✗"
-        print(f"  [noul] {symbol} '{action[:60]}' (confidence={conf:.3f})")
-        logger.emit_noul(action, is_valid, conf)
-        if is_valid:
-            valid_actions.append(action)
-
-    if not valid_actions:
-        print("  [expand] All actions pruned — keeping candidates as fallback.")
-        valid_actions = candidates
-
-    priors = get_action_priors(node.state, valid_actions)
-
-    for action in valid_actions:
-        child_explored = explored_actions + [action]
         child = Node(
             state=f"{node.state}\n[Action taken]: {action}",
             parent=node,
             action_taken=action,
             depth=node.depth + 1,
-            prior_probability=priors.get(action, 1.0 / len(valid_actions)),
+            prior_probability=priors.get(action, 1.0 / len(candidates)),
         )
         node.children.append(child)
         logger.emit_new_node(child)
@@ -186,7 +180,7 @@ def _deep_expand(
             width,
             remaining_depth - 1,
             logger,
-            explored_actions=child_explored,
+            explored_actions=explored_actions,
             config=config,
         )
 
@@ -217,18 +211,28 @@ def _backpropagate(node: Node, value: float, logger: MCTSLogger) -> None:
 
 # ── Phase B: Tree Reuse Helpers ───────────────────────────────────────────────
 
-def _reroot(chosen: Node, observation: str) -> Node:
+def _reroot(chosen: Node, observation: str, grounded_state: str | None = None) -> Node:
     """
     Update the chosen node's state with the ground-truth observation from execution,
     then detach it from its parent (making it the new root).
 
     The node's depth is reset to 0; all descendant depths are shifted accordingly.
     """
-    chosen.state += f"\n[Ground-Truth Observation]: {observation}"
+    chosen.state = grounded_state if grounded_state is not None else (
+        f"{chosen.state}\n[Ground-Truth Observation]: {observation}"
+    )
     chosen.parent = None
     # Shift depths: chosen is now depth=0, children become depth=1, etc.
     _shift_depths(chosen, target_depth=0)
+    _rebase_descendant_states(chosen)
     return chosen
+
+
+def _rebase_descendant_states(parent: Node) -> None:
+    """Rebuild hypothetical states from the latest observed root state."""
+    for child in parent.children:
+        child.state = f"{parent.state}\n[Action taken]: {child.action_taken}"
+        _rebase_descendant_states(child)
 
 
 def _shift_depths(node: Node, target_depth: int) -> None:
@@ -279,13 +283,30 @@ def _recombine_paths(
         return 0
 
     leaves_added = 0
-    for _ in range(n_paths):
-        parent = new_root
+    existing_paths: set[tuple[str, ...]] = set()
+    stack: list[tuple[Node, tuple[str, ...]]] = [(new_root, ())]
+    while stack:
+        node, path = stack.pop()
+        if path:
+            existing_paths.add(path)
+        stack.extend((child, path + (child.action_taken or "",)) for child in node.children)
+    attempts = 0
+    while leaves_added < n_paths and attempts < n_paths * 5:
+        attempts += 1
+        actions: list[str] = []
         for d in range(1, path_depth + 1):
             pool = shifted.get(d, [])
             if not pool:
                 break
-            action = random.choice(pool)
+            actions.append(random.choice(pool))
+        if not actions or tuple(actions) in existing_paths:
+            continue
+        parent = new_root
+        for d, action in enumerate(actions, start=1):
+            existing = next((child for child in parent.children if child.action_taken == action), None)
+            if existing is not None:
+                parent = existing
+                continue
             state = f"{parent.state}\n[Action taken]: {action}"
             child = Node(
                 state=state,
@@ -295,8 +316,8 @@ def _recombine_paths(
             )
             parent.children.append(child)
             parent = child
-        if parent is not new_root:
-            leaves_added += 1
+        existing_paths.add(tuple(actions))
+        leaves_added += 1
 
     return leaves_added
 
@@ -314,11 +335,22 @@ def _rescore_leaves(root: Node, goal: str, logger: MCTSLogger) -> dict[str, floa
     for leaf in root.subtree_leaves():
         val = evaluate_state(goal, leaf.state)
         leaf.value_sum = val
-        leaf.visits = max(leaf.visits, 1)
+        leaf.visits = 1
         logger.emit_score(leaf, val)
         scores[leaf.node_id] = val
         print(f"  [rescore] '{leaf.action_taken}' @ depth {leaf.depth} → {val:.3f}/10")
+    _refresh_tree_statistics(root)
     return scores
+
+
+def _refresh_tree_statistics(node: Node) -> None:
+    """Discard old search counts after grounding and aggregate current leaf scores."""
+    if not node.children:
+        return
+    for child in node.children:
+        _refresh_tree_statistics(child)
+    node.visits = sum(child.visits for child in node.children)
+    node.value_sum = sum(child.value_sum for child in node.children)
 
 
 # ── Public interface ───────────────────────────────────────────────────────────
@@ -338,6 +370,7 @@ def run_mcts(
     exploration_constant: float = 1.4,
     log_dir: str = "logs",
     config: AgentConfig | None = None,
+    reuse_tree: bool = False,
 ) -> tuple[Node, str]:
     """
     Run MCTS from `root` to evaluate candidates and select the single best immediate action.
@@ -347,8 +380,8 @@ def run_mcts(
     1. Deep Expansion  — `_deep_expand` builds a fully materialised tree of real nodes
        down to `expansion_depth` levels (default from config).  All leaves are scored
        at construction time via the Score primitive.
-    2. PUCT Iterations — additional PUCT-guided iterations expand any unscored leaves
-       that remain (e.g. due to Noul pruning) and backpropagate their values.
+    2. PUCT Iterations — additional PUCT-guided iterations refine fresh trees.
+       Reused trees are already scored, so they proceed directly to choice.
     3. Discriminative Choice — the best immediate child of root is selected via
        TypeSafe Choice synthesising MCTS statistics with goal alignment.
 
@@ -362,7 +395,9 @@ def run_mcts(
         Override tree depth for this call (default: config.expansion_depth).
     iterations : int | None
         Number of additional PUCT iterations *after* the initial deep expand.
-        Set to 0 to skip PUCT iterations and rely solely on the deep expansion scoring.
+        Reused trees always skip these iterations because they add no new evidence.
+    reuse_tree : bool
+        Use an already rescored tree without proposing additional actions.
     """
     cfg = config or load_config()
 
@@ -375,7 +410,9 @@ def run_mcts(
     )
     # Default PUCT iterations: one per leaf in the initial tree so every leaf gets
     # a backprop pass.  Callers can override with iterations=0 to skip.
-    effective_iterations = iterations if iterations is not None else (width ** depth)
+    effective_iterations = 0 if reuse_tree else (
+        iterations if iterations is not None else (width ** depth)
+    )
 
     logger = MCTSLogger(
         goal=goal,
@@ -397,10 +434,18 @@ def run_mcts(
     print(f"{'='*60}\n")
 
     # ── Phase A: Deep materialised expansion ───────────────────────────────────
-    print(f"[mcts] Phase A: deep expanding tree (width={width}, depth={depth})...")
-    explored: list[str] = root.all_actions_flat()
-    _deep_expand(root, goal, width, depth, logger, explored_actions=explored, config=cfg)
-    print(f"[mcts] Phase A complete: {len(root.subtree_leaves())} leaf paths materialised.\n")
+    if reuse_tree:
+        print(f"[mcts] Reusing {len(root.subtree_leaves())} rescored leaf paths.\n")
+    else:
+        print(f"[mcts] Phase A: deep expanding tree (width={width}, depth={depth})...")
+        explored: list[str] = root.all_actions_flat()
+        _deep_expand(root, goal, width, depth, logger, explored_actions=explored, config=cfg)
+        print(f"[mcts] Phase A complete: {len(root.subtree_leaves())} leaf paths materialised.\n")
+
+    if not root.children:
+        print("[mcts] Planner produced no immediate action.")
+        logger.emit_complete(root)
+        return root, str(logger.save())
 
     # ── Phase B: PUCT refinement iterations ───────────────────────────────────
     completed_early = False
@@ -412,9 +457,8 @@ def run_mcts(
         leaf = _select(root, exploration_constant, logger)
         print(f"  [select] Leaf: visits={leaf.visits}, action='{leaf.action_taken}'")
 
-        # If the leaf is genuinely unexpanded (shouldn't happen often after deep expand,
-        # but can after pruning), expand it now.
-        if leaf.is_leaf and leaf.visits == 0:
+        # Safeguard for an unexpectedly unscored leaf.
+        if not reuse_tree and leaf.is_leaf and leaf.visits == 0:
             explored = root.all_actions_flat()
             _deep_expand(
                 leaf, goal, width, depth - leaf.depth, logger,
@@ -487,7 +531,45 @@ def execute_single_action(
     """
     cfg = config or load_config()
     executor = get_executor_provider(cfg)
-    return executor.execute_action(action, goal, workspace_dir)
+    before = _workspace_file_snapshot(workspace_dir)
+    result = executor.execute_action(action, goal, workspace_dir)
+    after = _workspace_file_snapshot(workspace_dir)
+    result["changed_files"] = sorted(
+        path for path in before.keys() | after.keys() if before.get(path) != after.get(path)
+    )
+    return result
+
+
+def _workspace_file_snapshot(workspace_dir: str) -> dict[str, tuple[int, int]]:
+    """Capture file metadata to identify artifacts changed by one execution."""
+    snapshot: dict[str, tuple[int, int]] = {}
+    ignored = {".git", ".venv", "node_modules", "__pycache__"}
+    for directory, dirs, files in os.walk(workspace_dir):
+        dirs[:] = [name for name in dirs if name not in ignored]
+        for name in files:
+            path = os.path.join(directory, name)
+            try:
+                stat = os.stat(path)
+            except OSError:
+                continue
+            snapshot[os.path.relpath(path, workspace_dir)] = (stat.st_size, stat.st_mtime_ns)
+    return snapshot
+
+
+def _workspace_inventory(workspace_dir: str) -> str:
+    """Give the first planning step a compact view of existing workspace entries."""
+    try:
+        with os.scandir(workspace_dir) as listing:
+            entries = sorted(
+                (entry.name + ("/" if entry.is_dir() else ""))
+                for entry in listing
+                if entry.name not in {".git", ".venv", "node_modules", ".env"}
+            )
+    except OSError as exc:
+        return f"[Workspace inventory unavailable]: {exc}"
+    shown = entries[:60]
+    remainder = f" (and {len(entries) - 60} more)" if len(entries) > 60 else ""
+    return f"[Existing workspace entries]: {', '.join(shown) or '(empty)'}{remainder}"
 
 
 def review_action(
@@ -499,6 +581,7 @@ def review_action(
     Observe the environment after execution: capture git status/diff and execution output.
     """
     git_status = ""
+    git_diff = ""
     try:
         git_res = subprocess.run(
             ["git", "status", "--short"],
@@ -509,18 +592,47 @@ def review_action(
         )
         if git_res.returncode == 0 and git_res.stdout.strip():
             git_status = git_res.stdout.strip()
+        diff_res = subprocess.run(
+            ["git", "diff", "--stat"], cwd=workspace_dir,
+            capture_output=True, text=True, timeout=10,
+        )
+        if diff_res.returncode == 0:
+            git_diff = diff_res.stdout.strip()
     except Exception:
         pass
 
+    changed_files = execution_result.get("changed_files", [])
+    changed_sample = changed_files[:8] + changed_files[-5:] if len(changed_files) > 13 else changed_files
+    command = str(execution_result.get("command", ""))
     obs_lines: list[str] = []
-    if execution_result.get("success"):
-        obs_lines.append(f"Action '{action}' executed successfully (returncode 0).")
+    if execution_result.get("skipped"):
+        execution_result["verified"] = False
+        execution_result["verification_confidence"] = 0.0
+        obs_lines.append(f"Action '{action}' was skipped and is not verified.")
+    elif execution_result.get("success"):
+        evidence = (
+            f"Command:\n{command[-4000:]}\n"
+            f"Output:\n{str(execution_result.get('stdout', ''))[-4000:]}\n"
+            f"Files changed by this command ({len(changed_files)} total):\n{changed_sample!s}\n"
+            f"Git status:\n{git_status[-2000:]}\nDiff summary:\n{git_diff[-2000:]}"
+        )
+        verified, confidence = check_action_execution(action, evidence)
+        execution_result["verified"] = verified
+        execution_result["verification_confidence"] = confidence
+        status = "verified" if verified else "not verified"
+        obs_lines.append(
+            f"Command for action '{action}' returned 0; action {status} "
+            f"(confidence={confidence:.3f})."
+        )
     else:
+        execution_result["verified"] = False
         err = execution_result.get("stderr") or "Non-zero return code"
         obs_lines.append(f"Action '{action}' encountered errors: {err}")
 
-    if git_status:
-        obs_lines.append(f"Modified workspace files:\n{git_status}")
+    if changed_files:
+        obs_lines.append(f"Files changed: {len(changed_files)}; sample: {changed_sample}")
+    if command:
+        obs_lines.append(f"Command preview: {command[:300].replace(chr(10), ' ')}")
 
     stdout = execution_result.get("stdout", "")
     if stdout:
@@ -545,7 +657,7 @@ def adapt_state(
     Synthesize an updated, grounded state incorporating the executed action and observation.
     """
     step_summary = (
-        f"\n\n[Step {step} Completed Action]: {action}\n"
+        f"\n\n[Step {step} Attempted Action]: {action}\n"
         f"[Step {step} Ground-Truth Observation]:\n{observation}"
     )
     return current_state + step_summary
@@ -576,8 +688,8 @@ def run_closed_loop_agent(
       1. Plan & Choose   — MCTS deep-expands candidates and selects the best action.
       2. Execute         — Execute ONLY that action in the workspace.
       3. Review          — Observe git diff, execution logs, and environment changes.
-      4. Adapt & Reuse   — Harvest action vocabulary, reroot tree, recombine paths,
-                           rescore. Scramble if no path scores above threshold.
+      4. Adapt & Reuse   — Harvest vocabulary, reroot and ground survivor states.
+                           Recombine only when survivors miss the threshold.
       5. Assess          — Check goal completion via Noul.
     """
     if max_steps is None and not early_stop_noul:
@@ -599,14 +711,20 @@ def run_closed_loop_agent(
 
     run_id = datetime.now().strftime("%Y%m%d_%H%M%S")
     agent_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    target_workspace = workspace_dir or os.getenv("MCTS_WORKSPACE_DIR") or agent_root
+    try:
+        current_cwd = os.getcwd()
+    except Exception:
+        current_cwd = "."
+    target_workspace = workspace_dir or os.getenv("MCTS_WORKSPACE_DIR") or current_cwd
     resolved_log_dir = log_dir if os.path.isabs(log_dir) else os.path.join(agent_root, log_dir)
-    current_state = initial_state
+    current_state = f"{initial_state}\n{_workspace_inventory(target_workspace)}"
     steps_history: list[dict[str, Any]] = []
     goal_completed = False
+    stop_reason = "max_steps"
 
     # Persistent tree across steps (None on first step)
     _carried_tree: Optional[Node] = None
+    _carried_vocab: dict[int, list[str]] = {}
 
     steps_desc = f"Max Steps: {max_steps}" if max_steps is not None else f"Steps: Dynamic (JEV/Noul, cap={effective_max_steps})"
     iter_desc = f"Iterations/Step: {iterations_per_step}" if iterations_per_step is not None else "Iterations/Step: Dynamic (depth-driven)"
@@ -643,6 +761,7 @@ def run_closed_loop_agent(
         print(f"\n[PLAN & CHOOSE] Evaluating candidates for immediate action...")
 
         scramble_triggered = False
+        reused_tree = False
         if _carried_tree is not None and cfg.tree_reuse_enabled:
             print(f"[tree-reuse] Rescoring {len(_carried_tree.subtree_leaves())} surviving paths...")
             # Build a minimal logger for the rescore phase
@@ -657,19 +776,33 @@ def run_closed_loop_agent(
             rescore_logger.emit_init(_carried_tree)
             scores = _rescore_leaves(_carried_tree, goal, rescore_logger)
 
-            if scores and max(scores.values()) >= cfg.reuse_score_threshold:
+            best_survivor_score = max(scores.values()) if scores else 0.0
+            if _carried_tree.children and best_survivor_score >= cfg.reuse_score_threshold:
                 print(
-                    f"[tree-reuse] ✓ Best surviving path score={max(scores.values()):.3f} "
+                    f"[tree-reuse] ✓ Best surviving path score={best_survivor_score:.3f} "
                     f"≥ threshold={cfg.reuse_score_threshold}. Reusing tree."
                 )
                 root = _carried_tree
+                reused_tree = True
                 rescore_logger.save()
             else:
-                print(
-                    f"[tree-reuse] ✗ No path scored ≥ {cfg.reuse_score_threshold}. "
-                    f"Scrambling — rebuilding fresh tree."
+                print(f"[tree-reuse] No surviving path reached {cfg.reuse_score_threshold}; trying recombination.")
+                n_added = _recombine_paths(
+                    _carried_tree, _carried_vocab,
+                    n_paths=cfg.n_recombined_paths,
+                    path_depth=max(1, depth - 1),
                 )
-                scramble_triggered = True
+                print(f"[tree-reuse] Recombined {n_added} unique paths.")
+                if n_added:
+                    scores = _rescore_leaves(_carried_tree, goal, rescore_logger)
+                best_recombined_score = max(scores.values()) if scores else 0.0
+                if _carried_tree.children and best_recombined_score >= cfg.reuse_score_threshold:
+                    print(f"[tree-reuse] ✓ Recombined tree score={best_recombined_score:.3f}. Reusing tree.")
+                    root = _carried_tree
+                    reused_tree = True
+                else:
+                    print(f"[tree-reuse] ✗ No actionable path scored ≥ {cfg.reuse_score_threshold}. Scrambling.")
+                    scramble_triggered = True
                 rescore_logger.save()
 
         if _carried_tree is None or not cfg.tree_reuse_enabled or scramble_triggered:
@@ -687,11 +820,13 @@ def run_closed_loop_agent(
             exploration_constant=exploration_constant,
             log_dir=resolved_log_dir,
             config=cfg,
+            reuse_tree=reused_tree,
         )
 
         chosen_action = best_node.action_taken
         if not chosen_action:
             print(f"[closed-loop] Warning: No action selected at step {step}.")
+            stop_reason = "no_action_generated"
             break
 
         print(f"\n🎯 [CHOSEN ACTION]: '{chosen_action}' (score={best_node.average_value:.2f}/10)")
@@ -710,6 +845,7 @@ def run_closed_loop_agent(
             print("[closed-loop] Execution skipped (--no-execute mode).")
             exec_result = {
                 "success": True,
+                "skipped": True,
                 "stdout": "Dry run (execution skipped).",
                 "stderr": "",
                 "returncode": 0,
@@ -732,7 +868,7 @@ def run_closed_loop_agent(
             observation=observation,
         )
 
-        if cfg.tree_reuse_enabled and best_node.action_taken:
+        if cfg.tree_reuse_enabled and best_node.action_taken and exec_result.get("verified"):
             print(f"\n[TREE-REUSE] Harvesting action vocabulary and preparing next tree...")
 
             # Harvest full vocabulary from entire tree BEFORE rerooting
@@ -741,27 +877,18 @@ def run_closed_loop_agent(
             print(f"  Vocabulary: {total_vocab} actions across {len(vocab_by_depth)} depth levels")
 
             # Reroot at best_node with ground-truth observation
-            new_root = _reroot(best_node, observation)
+            new_root = _reroot(best_node, observation, grounded_state=current_state)
 
             surviving_leaves = len(new_root.subtree_leaves())
             print(f"  Preserved {surviving_leaves} leaf paths from chosen subtree.")
 
-            # Recombine: assemble cross-branch paths from vocabulary
-            n_added = _recombine_paths(
-                new_root,
-                vocab_by_depth,
-                n_paths=cfg.n_recombined_paths,
-                path_depth=max(1, depth - 1),
-            )
-            print(f"  Recombined {n_added} new paths from vocabulary (cross-branch).")
-
-            # Prune surviving subtree children below threshold to avoid stale paths
-            # dragging down the reuse check at the next step
-            _prune_low_value_children(new_root, cfg.reuse_score_threshold)
-
             _carried_tree = new_root
+            _carried_vocab = vocab_by_depth
         else:
+            if not exec_result.get("verified"):
+                print("[tree-reuse] Action not verified; discarding hypothetical subtree.")
             _carried_tree = None
+            _carried_vocab = {}
 
         steps_history.append({
             "step": step,
@@ -776,7 +903,7 @@ def run_closed_loop_agent(
 
         # ── 5. ASSESS ─────────────────────────────────────────────────────────
         print(f"\n[ASSESS] Checking goal completion via Noul...")
-        if early_stop_noul:
+        if early_stop_noul and exec_result.get("verified"):
             is_done, conf = check_task_completion(goal, current_state)
             if is_done:
                 print(
@@ -784,12 +911,15 @@ def run_closed_loop_agent(
                     f"(confidence={conf:.3f}) after step {step}!"
                 )
                 goal_completed = True
+                stop_reason = "completed"
                 break
             else:
                 print(
                     f"  [ASSESS] Goal not yet complete (confidence={conf:.3f} "
                     f"< {NOUL_COMPLETION_THRESHOLD}). Proceeding to next step.\n"
                 )
+        elif early_stop_noul:
+            print("  [ASSESS] Skipped: the chosen action was not verified.\n")
 
     summary = {
         "run_id": run_id,
@@ -797,6 +927,7 @@ def run_closed_loop_agent(
         "initial_state": initial_state,
         "final_state": current_state,
         "completed": goal_completed,
+        "stop_reason": stop_reason,
         "total_steps_run": len(steps_history),
         "steps": steps_history,
     }
