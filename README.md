@@ -7,17 +7,17 @@
 
 An autonomous reasoning and execution agent powered by **Discriminative Monte Carlo Tree Search (MCTS)**. The system couples **TypeSafe Jev System One Primitives** (`Noul`, `Choice`, `Score`) for lightning-fast, structured discriminative evaluations with **Gemini 3.8 Flash** for action generation in a closed-loop execution environment.
 
-Includes an interactive **D3.js Tree Visualizer** to inspect and replay search rollouts, branch pruning, and value backpropagation frame-by-frame.
+Includes an interactive **D3.js Tree Visualizer** to inspect and replay search rollouts and value backpropagation frame-by-frame.
 
 ---
 
 ## Key Highlights
 
-- **Fast Discriminative Pruning & Scoring**: Traditional MCTS with LLMs suffers from sluggish text generation and unpredictable parsing. This agent uses TypeSafe Jev System One models to evaluate validity, calculate priors, and score states directly in code with zero token parsing.
-- **Single-Call Batched Pruning (`Noul`)**: Evaluates all candidate actions in parallel in a single `system_one()` call. No per-action network roundtrips, no context rot.
+- **Fast Discriminative Scoring**: Choice assigns action priors and Score evaluates hypothetical states. Low early scores do not remove proposed paths.
+- **Low Tree Reuse Threshold**: After execution, grounded surviving paths are rescored. The tree is rebuilt only when no actionable path reaches the reuse threshold.
 - **Dynamic Prime Branching (`Choice`)**: Dynamically samples expansion widths from prime numbers ($2, 3, 5, 7, 11, 13$) based on state uncertainty and goal complexity.
 - **Closed-Loop Execution & Grounding**: Follows a strict cycle of Plan & Choose -> Execute -> Review -> Adapt -> Assess. Only the immediate winning action is executed; git diffs and terminal observations are folded back into context for subsequent decisions.
-- **Interactive D3 Visualizer**: Load generated JSON search logs directly in `visualizer.html` to replay search trees, inspect PUCT scores, view batched Noul gates, and analyze state trajectories.
+- **Interactive D3 Visualizer**: Load generated JSON search logs directly in `visualizer.html` to replay search trees, inspect PUCT scores, and analyze state trajectories.
 
 ---
 
@@ -32,7 +32,7 @@ Includes an interactive **D3.js Tree Visualizer** to inspect and replay search r
                 │ 1. PLAN & CHOOSE (Discriminative MCTS)       │
                 │    ├── Selection: PUCT + First-Play Urgency │
                 │    ├── Expansion: Gemini proposes actions   │
-                │    ├── Prune: Batched Noul gate             │
+                │    ├── Keep all proposed actions           │
                 │    ├── Priors: Choice policy distribution   │
                 │    ├── Value: Score rubric evaluation       │
                 │    └── Backpropagation: Value sum & visits  │
@@ -74,7 +74,7 @@ Large language models (LLMs) are System Two text-generators. When software needs
 
 | Primitive | Role in MCTS | Mechanism & Benefit |
 | :--- | :--- | :--- |
-| **`Noul`** | **Batched Action Pruning** & **Early Stopping** | Evaluates boolean propositions ($0.0 - 1.0$). Evaluates *all* candidate actions in a single atomic API call without per-action roundtrips. Prunes invalid actions before tree insertion (threshold $\ge 0.8$). Also gates early task termination (threshold $\ge 0.85$). |
+| **`Noul`** | **Execution Checks** & **Early Stopping** | Evaluates whether a proposed command matches the selected action, whether execution evidence supports completion, and whether the overall goal is complete. It does not prune proposed search paths. |
 | **`Choice`** | **Action Priors** & **Dynamic Branching** | Returns normalized probability distributions across discrete candidates. Assigns initial policy prior probabilities $P(s, a)$ used in the PUCT formula. Also selects optimal branching factor from primes ($2, 3, 5, 7, 11, 13$). |
 | **`Score`** | **State Value Heuristic** | Evaluates states on a continuous 1–10 rubric. Replaces costly, random Monte Carlo rollouts with a fast discriminative heuristic value estimate $V(s)$. |
 
@@ -120,7 +120,7 @@ The repository includes a standalone web visualizer [`visualizer.html`](visualiz
    - **Playback Controls**: Use Play ($\blacktriangleright$), Pause ($\mathbf{||}$), Step Forward ($\mathbf{>|}$), and Step Backward ($|\mathbf{<}$) to watch the tree expand iteration-by-iteration.
    - **Timeline Scrubber**: Drag the slider across search iterations.
    - **Node Details**: Click any node in the SVG canvas to view its accumulated visits, average score, prior probability, simulated state, and child branches in the right-hand inspection drawer.
-   - **Pruning Inspector**: Review candidate actions filtered or kept by the batched Noul gate with confidence scores.
+   - **Candidate Inspector**: Review generated actions and the paths they form.
 
 ---
 
@@ -131,7 +131,7 @@ The repository includes a standalone web visualizer [`visualizer.html`](visualiz
 - Python $\ge$ 3.10
 - Git
 - [TypeSafe API Key](https://typesafe.ai)
-- Antigravity CLI (`agy`) or Gemini API key
+- An execution harness: Antigravity CLI (`agy`) or [Pi](https://github.com/badlogic/pi-mono)
 
 ### Installation
 
@@ -156,6 +156,20 @@ Create a `.env` file in the project root:
 TYPESAFE_API_KEY=your_typesafe_api_key_here
 # Optional model overrides:
 AGY_MODEL=gemini-3.8-flash-medium
+```
+
+### Harness Configuration
+
+`mcts-agent` delegates planning and execution to a harness instead of calling a
+model HTTP endpoint or shell directly. Choose `agy`, `pi`, or `mock` in
+`antigravity.toml` (or with `--planner` and `--executor`). Pi manages its own
+model configuration, so it can use local or hosted models such as Qwen and
+DeepSeek without adding provider-specific model code here.
+
+```toml
+[providers]
+planner = "pi"
+executor = "pi"
 ```
 
 ---
@@ -345,7 +359,7 @@ pytest -v
 
 All test cases execute hermetically in mock mode and verify:
 - Node initialization, PUCT computation, and First-Play Urgency
-- Batched validity gating (`Noul`)
+- Low-score path preservation and tree reuse
 - Prior probability distribution generation (`Choice`)
 - Continuous state scoring (`Score`)
 - MCTSLogger event emission and JSON serialization

@@ -14,15 +14,12 @@ packages = [
 ]
 
 [providers]
-planner = "llama_cpp"   # options: "agy", "llama_cpp", "openai", "mock"
-executor = "llama_cpp"  # options: "agy", "llama_cpp", "local_cmd", "mock"
+planner = "pi"   # options: "agy", "pi", "mock"
+executor = "pi"  # options: "agy", "pi", "mock"
 
 [planner]
-model = "local-model"
-endpoint = "http://localhost:8080/v1/chat/completions" # for llama_cpp / openai
+model = ""
 
 [executor]
-model = "local-model"
-endpoint = "http://localhost:8080/v1/chat/completions" # for llama_cpp / openai
+model = ""
 timeout = 1800
-

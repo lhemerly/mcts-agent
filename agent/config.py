@@ -27,18 +27,14 @@ except ImportError:
 @dataclass
 class AgentConfig:
     # Providers
-    planner_provider: str = "agy"      # agy | llama_cpp | openai | mock
-    executor_provider: str = "agy"     # agy | llama_cpp | local_cmd | mock
+    planner_provider: str = "agy"      # agy | pi | mock
+    executor_provider: str = "agy"     # agy | pi | mock
 
     # Planner settings
     planner_model: str = "gemini-3.6-flash-low"
-    planner_endpoint: str = "http://localhost:8080/v1/chat/completions"
-    planner_api_key: str = ""
 
     # Executor settings
     executor_model: str = "gemini-3.8-flash-medium"
-    executor_endpoint: str = "http://localhost:8080/v1/chat/completions"
-    executor_api_key: str = ""
     executor_timeout: int = 1800
 
     # ── Tree expansion settings ──────────────────────────────────────────────
@@ -56,10 +52,10 @@ class AgentConfig:
 
     # reuse_score_threshold: minimum average_value a surviving leaf must have after
     # rescoring to avoid triggering a scramble (full tree rebuild).
-    reuse_score_threshold: float = 6.0
+    reuse_score_threshold: float = 1.5
 
-    # n_recombined_paths: how many random paths to assemble from the action vocabulary
-    # after re-rooting.  These are scored but not expanded further until selected.
+    # n_recombined_paths: maximum unique vocabulary paths to try when grounded
+    # surviving paths fall below the reuse threshold.
     n_recombined_paths: int = 18
 
 
@@ -77,9 +73,13 @@ def load_config(
     target_path = Path(config_path) if config_path else None
     if not target_path:
         package_root = Path(__file__).resolve().parent.parent
+        try:
+            cwd_path = Path.cwd()
+        except Exception:
+            cwd_path = Path(".")
         candidates = (
-            Path.cwd() / "antigravity.toml",
-            Path.cwd() / "config.toml",
+            cwd_path / "antigravity.toml",
+            cwd_path / "config.toml",
             Path.home() / ".config" / "mcts-agent" / "config.toml",
             Path.home() / ".antigravity.toml",
             package_root / "antigravity.toml",
@@ -122,40 +122,12 @@ def load_config(
         or "gemini-3.6-flash-low"
     )
 
-    planner_endpoint = (
-        cli_overrides.get("planner_endpoint")
-        or os.getenv("MCTS_PLANNER_ENDPOINT")
-        or planner_sec.get("endpoint")
-        or "http://localhost:8080/v1/chat/completions"
-    )
-
-    planner_api_key = (
-        cli_overrides.get("planner_api_key")
-        or os.getenv("MCTS_PLANNER_API_KEY")
-        or os.getenv("OPENAI_API_KEY", "")
-        or planner_sec.get("api_key", "")
-    )
-
     executor_model = (
         cli_overrides.get("executor_model")
         or os.getenv("AGY_MODEL")
         or os.getenv("MCTS_EXECUTOR_MODEL")
         or executor_sec.get("model")
         or "gemini-3.8-flash-medium"
-    )
-
-    executor_endpoint = (
-        cli_overrides.get("executor_endpoint")
-        or os.getenv("MCTS_EXECUTOR_ENDPOINT")
-        or executor_sec.get("endpoint")
-        or "http://localhost:8080/v1/chat/completions"
-    )
-
-    executor_api_key = (
-        cli_overrides.get("executor_api_key")
-        or os.getenv("MCTS_EXECUTOR_API_KEY")
-        or os.getenv("OPENAI_API_KEY", "")
-        or executor_sec.get("api_key", "")
     )
 
     timeout_raw = (
@@ -203,7 +175,7 @@ def load_config(
     expansion_depth = _int_cfg("expansion_depth", "MCTS_EXPANSION_DEPTH", tree_sec, 3)
     tree_reuse_enabled = _bool_cfg("tree_reuse_enabled", "MCTS_TREE_REUSE", tree_sec, True)
     reuse_score_threshold = _float_cfg(
-        "reuse_score_threshold", "MCTS_REUSE_THRESHOLD", tree_sec, 6.0
+        "reuse_score_threshold", "MCTS_REUSE_THRESHOLD", tree_sec, 1.5
     )
     n_recombined_paths = _int_cfg(
         "n_recombined_paths", "MCTS_N_RECOMBINED", tree_sec, 18
@@ -220,11 +192,7 @@ def load_config(
         planner_provider=str(planner_provider).lower(),
         executor_provider=str(executor_provider).lower(),
         planner_model=str(planner_model),
-        planner_endpoint=str(planner_endpoint),
-        planner_api_key=str(planner_api_key),
         executor_model=str(executor_model),
-        executor_endpoint=str(executor_endpoint),
-        executor_api_key=str(executor_api_key),
         executor_timeout=executor_timeout,
         expansion_width=expansion_width,
         expansion_depth=expansion_depth,

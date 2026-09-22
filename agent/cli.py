@@ -140,11 +140,12 @@ def _render_banner(
 
 def _render_summary(console: Console, summary: dict[str, Any]) -> None:
     is_completed = summary.get("completed", False)
-    status_text = (
-        "[bold green]COMPLETED[/bold green]"
-        if is_completed
-        else "[bold yellow]MAX STEPS REACHED[/bold yellow]"
-    )
+    stop_reason = summary.get("stop_reason", "completed" if is_completed else "max_steps")
+    status_text = {
+        "completed": "[bold green]COMPLETED[/bold green]",
+        "no_action_generated": "[bold yellow]NO ACTION GENERATED[/bold yellow]",
+        "max_steps": "[bold yellow]MAX STEPS REACHED[/bold yellow]",
+    }.get(stop_reason, "[bold yellow]STOPPED[/bold yellow]")
 
     console.print()
     console.print(
@@ -170,8 +171,12 @@ def _render_summary(console: Console, summary: dict[str, Any]) -> None:
 
         for s in steps:
             exec_info = s.get("execution", {})
-            success = exec_info.get("success", True)
-            exec_status = "[green]✓ Success[/green]" if success else "[red]✗ Failed[/red]"
+            if not exec_info.get("success", False):
+                exec_status = "[red]✗ Failed[/red]"
+            elif not exec_info.get("verified", False):
+                exec_status = "[yellow]? Unverified[/yellow]"
+            else:
+                exec_status = "[green]✓ Verified[/green]"
             log_name = os.path.basename(s.get("mcts_log", ""))
             table.add_row(
                 str(s.get("step")),
@@ -228,16 +233,10 @@ def run(
         None, "--workspace", "-w", help="Working directory for agent execution."
     ),
     planner: Optional[str] = typer.Option(
-        None, "--planner", "-p", help="Planner backend provider (agy | llama_cpp | openai | mock)."
+        None, "--planner", "-p", help="Planner harness (agy | pi | mock)."
     ),
     executor: Optional[str] = typer.Option(
-        None, "--executor", "-e", help="Executor backend provider (agy | llama_cpp | local_cmd | mock)."
-    ),
-    planner_endpoint: Optional[str] = typer.Option(
-        None, "--planner-endpoint", help="HTTP endpoint URL for llama_cpp / openai planner."
-    ),
-    executor_endpoint: Optional[str] = typer.Option(
-        None, "--executor-endpoint", help="HTTP endpoint URL for llama_cpp / openai executor."
+        None, "--executor", "-e", help="Executor harness (agy | pi | mock)."
     ),
     proposal_model: str = typer.Option(
         os.getenv("AGY_PROPOSAL_MODEL", "gemini-3.8-flash-low"),
@@ -245,10 +244,10 @@ def run(
         envvar="AGY_PROPOSAL_MODEL",
         help="AI model for generating candidate action proposals (default: gemini-3.8-flash-low).",
     ),
-    max_steps: int = typer.Option(
-        int(os.getenv("MCTS_MAX_STEPS", "5")),
+    max_steps: Optional[int] = typer.Option(
+        int(os.getenv("MCTS_MAX_STEPS")) if os.getenv("MCTS_MAX_STEPS") else None,
         "--max-steps",
-        help="Max steps in the execute-review-adapt loop (default: 5).",
+        help="Max steps in execute-review-adapt loop (default: dynamic mode via JEV/Noul assessment).",
     ),
     iterations: int = typer.Option(
         int(os.getenv("MCTS_ITERATIONS", "10")),
@@ -320,17 +319,24 @@ def run(
     )
     early_stop_noul = not no_early_stop
     execute_plan = not no_execute
-    resolved_workspace = workspace or os.getcwd()
+    try:
+        current_cwd = os.getcwd()
+    except Exception:
+        current_cwd = "."
+    resolved_workspace = workspace or current_cwd
+
+    # ``demo`` calls this command function directly. Typer's option defaults are
+    # OptionInfo objects in that path, rather than the CLI's resolved ``None``.
+    if isinstance(planner, typer.models.OptionInfo):
+        planner = None
+    if isinstance(executor, typer.models.OptionInfo):
+        executor = None
 
     config_overrides: dict[str, Any] = {}
     if planner:
         config_overrides["planner_provider"] = planner
     if executor:
         config_overrides["executor_provider"] = executor
-    if planner_endpoint:
-        config_overrides["planner_endpoint"] = planner_endpoint
-    if executor_endpoint:
-        config_overrides["executor_endpoint"] = executor_endpoint
 
     cfg = load_config(cli_overrides=config_overrides)
 
@@ -381,7 +387,11 @@ def run(
         sys.stdout.write(json.dumps(summary, indent=2, default=str) + "\n")
         sys.stdout.flush()
     elif is_quiet:
-        status_label = "COMPLETED" if summary.get("completed") else "MAX_STEPS_REACHED"
+        status_label = {
+            "completed": "COMPLETED",
+            "no_action_generated": "NO_ACTION_GENERATED",
+            "max_steps": "MAX_STEPS_REACHED",
+        }.get(summary.get("stop_reason", "completed" if summary.get("completed") else "max_steps"), "STOPPED")
         console.print(f"Goal: {active_goal}")
         console.print(f"Status: {status_label} | Steps: {summary.get('total_steps_run', 0)}")
         if "summary_file" in summary:
@@ -586,8 +596,11 @@ def interactive(
     if not initial_state:
         initial_state = f"Starting state for goal: {goal}"
 
-    current_state = initial_state
-    target_workspace = workspace or os.getcwd()
+    try:
+        current_cwd = os.getcwd()
+    except Exception:
+        current_cwd = "."
+    target_workspace = workspace or current_cwd
     early_stop = not no_early_stop
     execute_plan = not no_execute
 
@@ -732,19 +745,27 @@ def visualize(
             visualizer_path = serve_dir / "visualizer.html"
     else:
         repo_root = Path(__file__).resolve().parent.parent
-        if (Path.cwd() / "visualizer.html").exists():
-            serve_dir = Path.cwd().resolve()
+        try:
+            cwd_path = Path.cwd()
+        except Exception:
+            cwd_path = Path(".")
+        if (cwd_path / "visualizer.html").exists():
+            serve_dir = cwd_path.resolve()
             visualizer_path = visualizer_path or (serve_dir / "visualizer.html")
         elif (repo_root / "visualizer.html").exists():
             serve_dir = repo_root
             visualizer_path = visualizer_path or (serve_dir / "visualizer.html")
         else:
-            serve_dir = Path.cwd().resolve()
+            serve_dir = cwd_path.resolve()
 
     if visualizer_path is None or not visualizer_path.exists():
         repo_root = Path(__file__).resolve().parent.parent
-        if (Path.cwd() / "visualizer.html").exists():
-            visualizer_path = Path.cwd() / "visualizer.html"
+        try:
+            cwd_path = Path.cwd()
+        except Exception:
+            cwd_path = Path(".")
+        if (cwd_path / "visualizer.html").exists():
+            visualizer_path = cwd_path / "visualizer.html"
         elif (repo_root / "visualizer.html").exists():
             visualizer_path = repo_root / "visualizer.html"
 
