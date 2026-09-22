@@ -172,6 +172,23 @@ planner = "pi"
 executor = "pi"
 ```
 
+### Plugin connectors
+
+Harnesses and System One judgment backends are extensible without modifying the
+core factory code. A harness plugin registers a planner and/or executor through
+`agent.providers.register_harness`; a judgment plugin implements
+`agent.system_one.BaseSystemOneProvider` and registers with
+`register_system_one_provider`. Packages can also expose zero-argument entry
+points in the `mcts_agent.harnesses` and `mcts_agent.system_one` groups; they
+are discovered lazily at first use.
+
+Choose a System One provider in configuration:
+
+```toml
+[system_one]
+provider = "typesafe"
+```
+
 ---
 
 ## Usage
