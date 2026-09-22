@@ -26,7 +26,8 @@ import re
 import subprocess
 import textwrap
 from abc import ABC, abstractmethod
-from typing import Any, Optional
+from importlib.metadata import entry_points
+from typing import Any, Callable, Optional
 
 from agent.config import AgentConfig
 
@@ -491,10 +492,50 @@ class MockExecutorProvider(BaseExecutorProvider):
         }
 
 
-# ── Factories ─────────────────────────────────────────────────────────────────
+# ── Harness registry ──────────────────────────────────────────────────────────
 
-_KNOWN_PLANNER_HARNESSES = ("agy", "pi", "mock")
-_KNOWN_EXECUTOR_HARNESSES = ("agy", "pi", "mock")
+PlannerFactory = Callable[[AgentConfig], BasePlannerProvider]
+ExecutorFactory = Callable[[AgentConfig], BaseExecutorProvider]
+_HARNESS_REGISTRY: dict[str, tuple[PlannerFactory | None, ExecutorFactory | None]] = {}
+_LOADED_HARNESS_ENTRY_POINTS = False
+
+
+def register_harness(
+    name: str,
+    *,
+    planner_factory: PlannerFactory | None = None,
+    executor_factory: ExecutorFactory | None = None,
+    replace: bool = False,
+) -> None:
+    """Register a harness connector.
+
+    External packages can register at import time or publish an entry point in
+    the ``mcts_agent.harnesses`` group whose callable performs this registration.
+    """
+    key = name.strip().lower()
+    if not key or (planner_factory is None and executor_factory is None):
+        raise ValueError("A harness name and at least one factory are required")
+    if key in _HARNESS_REGISTRY and not replace:
+        raise ValueError(f"Harness '{key}' is already registered")
+    _HARNESS_REGISTRY[key] = (planner_factory, executor_factory)
+
+
+def _load_harness_entry_points() -> None:
+    global _LOADED_HARNESS_ENTRY_POINTS
+    if _LOADED_HARNESS_ENTRY_POINTS:
+        return
+    _LOADED_HARNESS_ENTRY_POINTS = True
+    try:
+        discovered = entry_points(group="mcts_agent.harnesses")
+    except TypeError:  # Python 3.10 compatibility
+        discovered = entry_points().get("mcts_agent.harnesses", [])
+    for entry_point in discovered:
+        entry_point.load()()
+
+
+def available_harnesses() -> tuple[str, ...]:
+    _load_harness_entry_points()
+    return tuple(sorted(_HARNESS_REGISTRY))
 
 
 def get_planner_provider(config: AgentConfig) -> BasePlannerProvider:
@@ -504,19 +545,12 @@ def get_planner_provider(config: AgentConfig) -> BasePlannerProvider:
     an agent harness.  Raises ValueError for unknown harness names so
     misconfigurations are caught early.
     """
+    _load_harness_entry_points()
     provider = config.planner_provider.lower()
-    match provider:
-        case "agy":
-            return AGYPlannerProvider(model=config.planner_model or "gemini-3.6-flash-low")
-        case "pi":
-            return PiPlannerProvider(model=config.planner_model)
-        case "mock":
-            return MockPlannerProvider()
-        case _:
-            raise ValueError(
-                f"Unknown planner harness '{provider}'. "
-                f"Valid options: {_KNOWN_PLANNER_HARNESSES}"
-            )
+    factory = _HARNESS_REGISTRY.get(provider, (None, None))[0]
+    if factory is None:
+        raise ValueError(f"Unknown planner harness '{provider}'. Available: {available_harnesses()}")
+    return factory(config)
 
 
 def get_executor_provider(config: AgentConfig) -> BaseExecutorProvider:
@@ -526,19 +560,28 @@ def get_executor_provider(config: AgentConfig) -> BaseExecutorProvider:
     an agent harness that has its own tool loop.  Raises ValueError for unknown
     harness names so misconfigurations are caught early.
     """
+    _load_harness_entry_points()
     provider = config.executor_provider.lower()
-    match provider:
-        case "agy":
-            return AGYExecutorProvider(
-                model=config.executor_model or "gemini-3.8-flash-medium",
-                timeout=config.executor_timeout,
-            )
-        case "pi":
-            return PiExecutorProvider(model=config.executor_model, timeout=config.executor_timeout)
-        case "mock":
-            return MockExecutorProvider()
-        case _:
-            raise ValueError(
-                f"Unknown executor harness '{provider}'. "
-                f"Valid options: {_KNOWN_EXECUTOR_HARNESSES}"
-            )
+    factory = _HARNESS_REGISTRY.get(provider, (None, None))[1]
+    if factory is None:
+        raise ValueError(f"Unknown executor harness '{provider}'. Available: {available_harnesses()}")
+    return factory(config)
+
+
+register_harness(
+    "agy",
+    planner_factory=lambda cfg: AGYPlannerProvider(cfg.planner_model or "gemini-3.6-flash-low"),
+    executor_factory=lambda cfg: AGYExecutorProvider(
+        cfg.executor_model or "gemini-3.8-flash-medium", cfg.executor_timeout
+    ),
+)
+register_harness(
+    "pi",
+    planner_factory=lambda cfg: PiPlannerProvider(cfg.planner_model),
+    executor_factory=lambda cfg: PiExecutorProvider(cfg.executor_model, cfg.executor_timeout),
+)
+register_harness(
+    "mock",
+    planner_factory=lambda cfg: MockPlannerProvider(),
+    executor_factory=lambda cfg: MockExecutorProvider(),
+)

@@ -39,6 +39,10 @@ class AgentConfig:
     executor_model: str = ""
     executor_timeout: int = 1800
 
+    # Discriminative judgment backend (built-in: typesafe; external plugins may
+    # register additional providers through the mcts_agent.system_one group).
+    system_one_provider: str = "typesafe"
+
     # ── Tree expansion settings ──────────────────────────────────────────────
     # expansion_width: branching factor at each tree level (replaces actions_per_node
     # for the deep-expand strategy; actions_per_node still overrides per-call).
@@ -100,6 +104,7 @@ def load_config(
     planner_sec = config_data.get("planner", {})
     executor_sec = config_data.get("executor", {})
     tree_sec = config_data.get("tree", {})
+    system_one_sec = config_data.get("system_one", {})
 
     # 2. Resolve values with priority: CLI > ENV > TOML > Defaults
     planner_provider = (
@@ -114,6 +119,12 @@ def load_config(
         or os.getenv("MCTS_EXECUTOR_PROVIDER")
         or providers_sec.get("executor")
         or "agy"
+    )
+    system_one_provider = (
+        cli_overrides.get("system_one_provider")
+        or os.getenv("MCTS_SYSTEM_ONE_PROVIDER")
+        or system_one_sec.get("provider")
+        or "typesafe"
     )
 
     def _model_cfg(
@@ -211,6 +222,7 @@ def load_config(
         planner_model=str(planner_model),
         executor_model=str(executor_model),
         executor_timeout=executor_timeout,
+        system_one_provider=str(system_one_provider).lower(),
         expansion_width=expansion_width,
         expansion_depth=expansion_depth,
         tree_reuse_enabled=tree_reuse_enabled,

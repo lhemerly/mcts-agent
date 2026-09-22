@@ -17,15 +17,8 @@ from __future__ import annotations
 
 import os
 import random
-from typing import Optional
-
-# ── SDK import ─────────────────────────────────────────────────────────────────
-try:
-    from typesafe_sdk import Choice, Noul, Score, TypeSafeClient, TypeSafeAPIError
-    _SDK_AVAILABLE = True
-except ImportError:
-    _SDK_AVAILABLE = False
-    TypeSafeAPIError = Exception  # type: ignore[assignment,misc]
+from agent.config import load_config
+from agent.system_one import SystemOneProviderError, get_system_one_provider
 
 # ── Configuration ──────────────────────────────────────────────────────────────
 _USE_MOCK = os.getenv("USE_MOCK_PRIMITIVES", "false").lower() in ("1", "true", "yes")
@@ -62,20 +55,9 @@ _SCORE_RUBRIC: list[str] = [
 ]
 
 
-# ── Shared client (lazy singleton) ─────────────────────────────────────────────
-_client: Optional["TypeSafeClient"] = None
-
-
-def _get_client() -> "TypeSafeClient":
-    """Return (or create) the shared synchronous TypeSafe client."""
-    global _client
-    if _client is None:
-        if not _SDK_AVAILABLE:
-            raise RuntimeError(
-                "typesafe-sdk is not installed. Run: pip install typesafe-sdk"
-            )
-        _client = TypeSafeClient()
-    return _client
+def _get_provider(name: str | None = None):
+    """Resolve the configured System One plugin for non-mock judgments."""
+    return get_system_one_provider(name or load_config().system_one_provider)
 
 
 # ── Mock helpers ───────────────────────────────────────────────────────────────
@@ -100,7 +82,7 @@ def _mock_evaluate_state() -> float:
 # ── Public primitives ──────────────────────────────────────────────────────────
 
 def batch_check_validity(
-    state: str, actions: list[str], *, mock: bool | None = None
+    state: str, actions: list[str], *, mock: bool | None = None, system_one_provider: str | None = None
 ) -> dict[str, tuple[bool, float]]:
     """
     Noul primitive — batched pruning gate.
@@ -124,44 +106,37 @@ def batch_check_validity(
     if mock:
         return _mock_batch_check_validity(actions)
 
-    client = _get_client()
-
     # Build one Noul question per action in a single questions dict.
     # Key format: "action_<index>" (keys are not sent to the model).
     # The action text lives inside `instructions` so the model sees it.
     index_to_action: dict[str, str] = {}
-    questions: dict[str, "Noul"] = {}
+    questions: dict[str, str] = {}
     for i, action in enumerate(actions):
         key = f"action_{i}"
         index_to_action[key] = action
-        questions[key] = Noul(
-            instructions=(
+        questions[key] = (
                 f"Given the current state context, is this a feasible, clearly "
                 f"scoped action plan that is relevant to making progress? "
                 f"Multi-step or multi-file work is acceptable when it belongs to "
                 f"the same requested outcome. Answer no only if it is unrelated, "
                 f"internally contradictory, or impractically broad.\n"
                 f"Proposed action: {action}"
-            )
         )
 
     try:
-        response = client.system_one(
-            state={"current_state": state},
-            questions=questions,
-        )
+        probabilities = _get_provider(system_one_provider).batch_noul({"current_state": state}, questions)
         results: dict[str, tuple[bool, float]] = {}
         for key, action in index_to_action.items():
-            prob: float = response.nouls[key].noul
+            prob = probabilities[key]
             results[action] = (prob >= NOUL_VALIDITY_THRESHOLD, prob)
         return results
-    except TypeSafeAPIError as exc:
+    except (SystemOneProviderError, RuntimeError, ValueError) as exc:
         print(f"[primitives] Noul batch API error: {exc}. Defaulting all to invalid.")
         return {a: (False, 0.0) for a in actions}
 
 
 def get_action_priors(
-    state: str, actions: list[str], *, mock: bool | None = None
+    state: str, actions: list[str], *, mock: bool | None = None, system_one_provider: str | None = None
 ) -> dict[str, float]:
     """
     Choice primitive — policy (prior probability) assignment.
@@ -182,38 +157,30 @@ def get_action_priors(
     if not actions:
         return {}
 
-    client = _get_client()
     criteria: dict[str, None] = {a: None for a in actions}
 
     try:
-        response = client.system_one(
-            state={"current_state": state},
-            questions={
-                "best_action": Choice(
-                    instructions=(
-                        "Given the current state, which of the following actions "
-                        "is most likely to make meaningful progress toward the goal?"
-                    ),
-                    criteria=criteria,
-                )
-            },
+        response = _get_provider(system_one_provider).choose(
+            {"current_state": state},
+            "Given the current state, which of the following actions is most likely to make meaningful progress toward the goal?",
+            criteria,
         )
-        probs: dict[str, float] = response.choices["best_action"].probabilities
+        probs = response.probabilities
         n = len(actions)
         return {a: probs.get(a, 1.0 / n) for a in actions}
-    except TypeSafeAPIError as exc:
+    except (SystemOneProviderError, RuntimeError, ValueError) as exc:
         print(f"[primitives] Choice API error: {exc}. Falling back to uniform priors.")
         n = len(actions)
         return {a: 1.0 / n for a in actions}
 
 
-def evaluate_state(goal: str, simulated_state: str, *, mock: bool | None = None) -> float:
+def evaluate_state(goal: str, simulated_state: str, *, mock: bool | None = None, system_one_provider: str | None = None) -> float:
     """
     Score primitive — value function / simulation replacement.
 
     Rates the simulated state against the goal on a 1-10 rubric.
-    TypeSafe Score returns a 0-indexed float (0..9); we add 1 to report
-    on the spec-mandated 1-10 scale.
+    Providers return the public 1–10 scale; values are bounded defensively to
+    preserve the MCTS score invariant.
 
     Returns
     -------
@@ -225,30 +192,15 @@ def evaluate_state(goal: str, simulated_state: str, *, mock: bool | None = None)
     if mock:
         return _mock_evaluate_state()
 
-    client = _get_client()
     try:
-        response = client.system_one(
-            state={
-                "goal": goal,
-                "simulated_state": simulated_state,
-            },
-            questions={
-                "progress": Score(
-                    instructions=(
-                        "Rate how much progress has been made toward the goal "
-                        "based on the simulated state. Use the 1-10 rubric "
-                        "strictly, where 1 means no progress and 10 means the "
-                        "goal is fully achieved."
-                    ),
-                    criteria=_SCORE_RUBRIC,
-                )
-            },
+        score = _get_provider(system_one_provider).score(
+            {"goal": goal, "simulated_state": simulated_state},
+            "Rate how much progress has been made toward the goal based on the simulated state. "
+            "Use the 1-10 rubric strictly, where 1 means no progress and 10 means the goal is fully achieved.",
+            _SCORE_RUBRIC,
         )
-        # TypeSafe scores are 0-indexed across `len(criteria)` levels.
-        # Add 1 to convert to the 1-10 scale specified in the rubric labels.
-        raw_score: float = response.scores["progress"].score
-        return raw_score + 1.0
-    except TypeSafeAPIError as exc:
+        return min(10.0, max(1.0, score))
+    except (SystemOneProviderError, RuntimeError, ValueError) as exc:
         print(f"[primitives] Score API error: {exc}. Defaulting to 1.")
         return 1.0
 
@@ -259,6 +211,7 @@ def select_action_count(
     *,
     candidate_counts: list[int] | None = None,
     mock: bool | None = None,
+    system_one_provider: str | None = None,
 ) -> int:
     """
     Use TypeSafe Choice to dynamically select the number of candidate actions
@@ -272,35 +225,23 @@ def select_action_count(
     if mock:
         return random.choice(counts[:4])  # bias mock to 2, 3, 5, 7
 
-    client = _get_client()
     str_counts = [str(c) for c in counts]
     criteria = {s: None for s in str_counts}
 
     try:
-        response = client.system_one(
-            state={
-                "goal": goal,
-                "current_state": state,
-            },
-            questions={
-                "branch_count": Choice(
-                    instructions=(
-                        "Given the current problem state and overall goal, choose how many "
-                        "distinct next action candidates should be generated to ensure optimal "
-                        "branching diversity and exploration variance without unnecessary clutter. "
-                        "Options are prime numbers: 2, 3, 5, 7, 11, 13."
-                    ),
-                    criteria=criteria,
-                )
-            },
+        response = _get_provider(system_one_provider).choose(
+            {"goal": goal, "current_state": state},
+            "Given the current problem state and overall goal, choose how many distinct next "
+            "action candidates should be generated. Options are prime numbers: 2, 3, 5, 7, 11, 13.",
+            criteria,
         )
-        probs = response.choices["branch_count"].probabilities
+        probs = response.probabilities
         # Pick the prime with the highest probability
         chosen_str = max(probs, key=lambda k: probs.get(k, 0.0))
         chosen_count = int(chosen_str)
         print(f"[primitives] Dynamic branching factor chosen via Choice: {chosen_count} (probs: {probs})")
         return chosen_count
-    except TypeSafeAPIError as exc:
+    except (SystemOneProviderError, RuntimeError, ValueError) as exc:
         print(f"[primitives] Choice action count error: {exc}. Defaulting to 3.")
         return 3
 
@@ -310,6 +251,7 @@ def check_task_completion(
     state: str,
     *,
     mock: bool | None = None,
+    system_one_provider: str | None = None,
 ) -> tuple[bool, float]:
     """
     Use TypeSafe Noul to determine if the task has been completed or the plan
@@ -325,27 +267,15 @@ def check_task_completion(
         # Mock mode: never complete early by default
         return False, 0.0
 
-    client = _get_client()
     try:
-        response = client.system_one(
-            state={
-                "goal": goal,
-                "current_state_or_plan": state,
-            },
-            questions={
-                "is_completed": Noul(
-                    instructions=(
-                        "Given the overall goal and the current state / accumulated plan, "
-                        "is the task fully completed or has the solution plan been refined "
-                        "enough such that further search iterations are unnecessary and ready for execution?"
-                    )
-                )
-            },
+        prob = _get_provider(system_one_provider).noul(
+            {"goal": goal, "current_state_or_plan": state},
+            "Given the overall goal and the current state / accumulated plan, is the task fully "
+            "completed or ready for execution without further search?",
         )
-        prob: float = response.nouls["is_completed"].noul
         is_done = prob >= NOUL_COMPLETION_THRESHOLD
         return is_done, prob
-    except TypeSafeAPIError as exc:
+    except (SystemOneProviderError, RuntimeError, ValueError) as exc:
         print(f"[primitives] Noul completion check error: {exc}.")
         return False, 0.0
 
@@ -355,6 +285,7 @@ def check_action_execution(
     evidence: str,
     *,
     mock: bool | None = None,
+    system_one_provider: str | None = None,
 ) -> tuple[bool, float]:
     """Check whether execution evidence supports completion of this exact action."""
     if mock is None:
@@ -362,19 +293,13 @@ def check_action_execution(
     if mock:
         return True, 1.0
     try:
-        response = _get_client().system_one(
-            state={"requested_action": action, "execution_evidence": evidence},
-            questions={"action_completed": Noul(instructions=(
-                "Does the execution evidence show that the exact requested action "
-                "was completed? A zero exit code only shows that commands ran. "
-                "Cloning is sufficient when the action requests cloning; installing "
-                "dependencies is sufficient when the action requests installation. "
-                "Reject unrelated edits, placeholder results, and missing requested work."
-            ))},
+        confidence = _get_provider(system_one_provider).noul(
+            {"requested_action": action, "execution_evidence": evidence},
+            "Does the execution evidence show that the exact requested action was completed? "
+            "A zero exit code only shows that commands ran. Reject unrelated edits, placeholder results, and missing requested work.",
         )
-        confidence: float = response.nouls["action_completed"].noul
         return confidence >= NOUL_VALIDITY_THRESHOLD, confidence
-    except (TypeSafeAPIError, RuntimeError) as exc:
+    except (SystemOneProviderError, RuntimeError, ValueError) as exc:
         print(f"[primitives] Action verification error: {exc}.")
         return False, 0.0
 
@@ -384,6 +309,7 @@ def check_command_alignment(
     command: str,
     *,
     mock: bool | None = None,
+    system_one_provider: str | None = None,
 ) -> tuple[bool, float]:
     """Reject generated commands that do not directly implement the chosen action."""
     if mock is None:
@@ -391,21 +317,13 @@ def check_command_alignment(
     if mock:
         return True, 1.0
     try:
-        response = _get_client().system_one(
-            state={"requested_action": action, "proposed_shell_command": command[:12000]},
-            questions={"aligned": Noul(instructions=(
-                "Would these commands directly and completely carry out the exact "
-                "requested action in the workspace? Judge against the action itself. "
-                "A git clone is appropriate for a clone action; installation commands "
-                "are appropriate for an install action. If the action requests both "
-                "cloning and installing, a script that only clones is incomplete. "
-                "Reject unrelated work, placeholder data, and incomplete scripts. "
-                "Answer no when the script's effect cannot be determined."
-            ))},
+        confidence = _get_provider(system_one_provider).noul(
+            {"requested_action": action, "proposed_shell_command": command[:12000]},
+            "Would these commands directly and completely carry out the requested action? "
+            "Reject unrelated work, placeholder data, incomplete scripts, or effects that cannot be determined.",
         )
-        confidence: float = response.nouls["aligned"].noul
         return confidence >= NOUL_VALIDITY_THRESHOLD, confidence
-    except (TypeSafeAPIError, RuntimeError) as exc:
+    except (SystemOneProviderError, RuntimeError, ValueError) as exc:
         print(f"[primitives] Command alignment check error: {exc}.")
         return False, 0.0
 
@@ -415,6 +333,7 @@ def select_simulation_depth(
     *,
     candidate_depths: list[int] | None = None,
     mock: bool | None = None,
+    system_one_provider: str | None = None,
 ) -> int:
     """
     Use TypeSafe Choice to dynamically select the number of simulated lookahead
@@ -426,34 +345,22 @@ def select_simulation_depth(
     if mock:
         return random.choice(depths)
 
-    client = _get_client()
     str_depths = [str(d) for d in depths]
     criteria = {s: None for s in str_depths}
 
     try:
-        response = client.system_one(
-            state={
-                "goal": goal,
-                "current_state": state,
-            },
-            questions={
-                "sim_depth": Choice(
-                    instructions=(
-                        "Given the current problem state and overall goal, choose how many "
-                        "simulated lookahead steps (depth) should be projected into the future "
-                        "during MCTS rollout simulation to reliably evaluate downstream trajectory "
-                        "risk and goal advancement. Options are prime numbers: 2, 3, 5."
-                    ),
-                    criteria=criteria,
-                )
-            },
+        response = _get_provider(system_one_provider).choose(
+            {"goal": goal, "current_state": state},
+            "Given the current problem state and overall goal, choose the simulated lookahead "
+            "depth for MCTS. Options are prime numbers: 2, 3, 5.",
+            criteria,
         )
-        probs = response.choices["sim_depth"].probabilities
+        probs = response.probabilities
         chosen_str = max(probs, key=lambda k: probs.get(k, 0.0))
         chosen_depth = int(chosen_str)
         print(f"[primitives] Dynamic simulation depth chosen via Choice: {chosen_depth} (probs: {probs})")
         return chosen_depth
-    except TypeSafeAPIError as exc:
+    except (SystemOneProviderError, RuntimeError, ValueError) as exc:
         print(f"[primitives] Choice simulation depth error: {exc}. Defaulting to 2.")
         return 2
 
@@ -464,6 +371,7 @@ def discriminative_choose_best_action(
     candidates: list[Any],
     *,
     mock: bool | None = None,
+    system_one_provider: str | None = None,
 ) -> Any:
     """
     Use TypeSafe Choice to make the final discriminative decision on which candidate branch
@@ -484,7 +392,6 @@ def discriminative_choose_best_action(
     if mock:
         return max(eval_candidates, key=lambda c: (c.visits, c.average_value))
 
-    client = _get_client()
     action_to_node: dict[str, Any] = {}
     criteria: dict[str, str | None] = {}
     for i, node in enumerate(eval_candidates):
@@ -497,26 +404,16 @@ def discriminative_choose_best_action(
         )
 
     try:
-        response = client.system_one(
-            state={
-                "goal": goal,
-                "current_state": state,
-            },
-            questions={
-                "chosen_action": Choice(
-                    instructions=(
-                        "Given the goal, current state context, and MCTS search tree statistics "
-                        "for each candidate branch, select the single best immediate action to "
-                        "execute next in the real environment."
-                    ),
-                    criteria=criteria,
-                )
-            },
+        response = _get_provider(system_one_provider).choose(
+            {"goal": goal, "current_state": state},
+            "Given the goal, current state context, and MCTS search tree statistics for each "
+            "candidate branch, select the best action to execute next.",
+            criteria,
         )
-        choice_key = response.choices["chosen_action"].choice
+        choice_key = response.choice
         best_node = action_to_node.get(choice_key)
         if best_node is None:
-            probs = response.choices["chosen_action"].probabilities
+            probs = response.probabilities
             if probs:
                 top_key = max(probs, key=lambda k: probs.get(k, 0.0))
                 best_node = action_to_node.get(top_key)
@@ -526,6 +423,6 @@ def discriminative_choose_best_action(
             return best_node
 
         return max(eval_candidates, key=lambda c: (c.visits, c.average_value))
-    except TypeSafeAPIError as exc:
+    except (SystemOneProviderError, RuntimeError, ValueError) as exc:
         print(f"[primitives] Choice decision error: {exc}. Falling back to MCTS robust child.")
         return max(eval_candidates, key=lambda c: (c.visits, c.average_value))
