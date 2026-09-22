@@ -32,7 +32,9 @@ class BaseSystemOneProvider(ABC):
 
     @abstractmethod
     def score(self, state: Mapping[str, Any], instructions: str,
-              criteria: list[str]) -> float: ...
+              criteria: list[str]) -> float:
+        """Return a score on the public 1–10 scale used by MCTS."""
+        raise NotImplementedError
 
     @abstractmethod
     def noul(self, state: Mapping[str, Any], instructions: str) -> float: ...
@@ -73,7 +75,8 @@ class TypeSafeSystemOneProvider(BaseSystemOneProvider):
 
     def score(self, state: Mapping[str, Any], instructions: str, criteria: list[str]) -> float:
         result = self._call(state, {"score": self._Score(instructions=instructions, criteria=criteria)})
-        return float(result.scores["score"].score)
+        # TypeSafe scores are zero-indexed across the supplied rubric levels.
+        return float(result.scores["score"].score) + 1.0
 
     def noul(self, state: Mapping[str, Any], instructions: str) -> float:
         return self.batch_noul(state, {"noul": instructions})["noul"]

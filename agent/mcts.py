@@ -135,7 +135,7 @@ def _deep_expand(
 
     if remaining_depth == 0:
         # Leaf: score and record
-        val = evaluate_state(goal, node.state)
+        val = evaluate_state(goal, node.state, system_one_provider=config.system_one_provider if config else None)
         node.visits = 1
         node.value_sum = val
         logger.emit_score(node, val)
@@ -151,13 +151,15 @@ def _deep_expand(
 
     if not candidates:
         print("  [expand] Planner returned no actions; scoring the current path.")
-        val = evaluate_state(goal, node.state)
+        val = evaluate_state(goal, node.state, system_one_provider=config.system_one_provider if config else None)
         node.visits = 1
         node.value_sum = val
         logger.emit_score(node, val)
         return
 
-    priors = get_action_priors(node.state, candidates)
+    priors = get_action_priors(
+        node.state, candidates, system_one_provider=config.system_one_provider if config else None
+    )
 
     # Share the action vocabulary across sibling branches in this expansion.
     # Descendants should not ask the planner for actions already proposed elsewhere.
@@ -322,7 +324,9 @@ def _recombine_paths(
     return leaves_added
 
 
-def _rescore_leaves(root: Node, goal: str, logger: MCTSLogger) -> dict[str, float]:
+def _rescore_leaves(
+    root: Node, goal: str, logger: MCTSLogger, config: AgentConfig | None = None
+) -> dict[str, float]:
     """
     Re-evaluate all unvisited leaf nodes (newly recombined) and all existing leaves
     under the new root.  Visited leaves keep their existing scores unless they are
@@ -333,7 +337,7 @@ def _rescore_leaves(root: Node, goal: str, logger: MCTSLogger) -> dict[str, floa
     """
     scores: dict[str, float] = {}
     for leaf in root.subtree_leaves():
-        val = evaluate_state(goal, leaf.state)
+        val = evaluate_state(goal, leaf.state, system_one_provider=config.system_one_provider if config else None)
         leaf.value_sum = val
         leaf.visits = 1
         logger.emit_score(leaf, val)
@@ -472,7 +476,9 @@ def run_mcts(
         # Early stopping via Noul
         if early_stop_noul and i >= 2 and root.children:
             best_so_far = max(root.children, key=lambda c: (c.visits, c.average_value))
-            is_done, conf = check_task_completion(goal, best_so_far.state)
+            is_done, conf = check_task_completion(
+                goal, best_so_far.state, system_one_provider=cfg.system_one_provider
+            )
             if is_done:
                 print(
                     f"  [noul/jev] 🎯 JEV determined task completed / sufficiently refined "
@@ -492,7 +498,9 @@ def run_mcts(
         return root, str(log_path)
 
     # ── Final discriminative selection ─────────────────────────────────────────
-    best = discriminative_choose_best_action(goal, root.state, root.children)
+    best = discriminative_choose_best_action(
+        goal, root.state, root.children, system_one_provider=cfg.system_one_provider
+    )
     logger.emit_complete(best)
 
     print(f"\n{'='*60}")
@@ -576,6 +584,7 @@ def review_action(
     action: str,
     execution_result: dict[str, Any],
     workspace_dir: str = ".",
+    config: AgentConfig | None = None,
 ) -> str:
     """
     Observe the environment after execution: capture git status/diff and execution output.
@@ -616,7 +625,9 @@ def review_action(
             f"Files changed by this command ({len(changed_files)} total):\n{changed_sample!s}\n"
             f"Git status:\n{git_status[-2000:]}\nDiff summary:\n{git_diff[-2000:]}"
         )
-        verified, confidence = check_action_execution(action, evidence)
+        verified, confidence = check_action_execution(
+            action, evidence, system_one_provider=config.system_one_provider if config else None
+        )
         execution_result["verified"] = verified
         execution_result["verification_confidence"] = confidence
         status = "verified" if verified else "not verified"
@@ -774,7 +785,7 @@ def run_closed_loop_agent(
                 run_id=run_id,
             )
             rescore_logger.emit_init(_carried_tree)
-            scores = _rescore_leaves(_carried_tree, goal, rescore_logger)
+            scores = _rescore_leaves(_carried_tree, goal, rescore_logger, cfg)
 
             best_survivor_score = max(scores.values()) if scores else 0.0
             if _carried_tree.children and best_survivor_score >= cfg.reuse_score_threshold:
@@ -794,7 +805,7 @@ def run_closed_loop_agent(
                 )
                 print(f"[tree-reuse] Recombined {n_added} unique paths.")
                 if n_added:
-                    scores = _rescore_leaves(_carried_tree, goal, rescore_logger)
+                    scores = _rescore_leaves(_carried_tree, goal, rescore_logger, cfg)
                 best_recombined_score = max(scores.values()) if scores else 0.0
                 if _carried_tree.children and best_recombined_score >= cfg.reuse_score_threshold:
                     print(f"[tree-reuse] ✓ Recombined tree score={best_recombined_score:.3f}. Reusing tree.")
@@ -857,6 +868,7 @@ def run_closed_loop_agent(
             action=chosen_action,
             execution_result=exec_result,
             workspace_dir=target_workspace,
+            config=cfg,
         )
 
         # ── 4. ADAPT & TREE REUSE ─────────────────────────────────────────────
@@ -904,7 +916,9 @@ def run_closed_loop_agent(
         # ── 5. ASSESS ─────────────────────────────────────────────────────────
         print(f"\n[ASSESS] Checking goal completion via Noul...")
         if early_stop_noul and exec_result.get("verified"):
-            is_done, conf = check_task_completion(goal, current_state)
+            is_done, conf = check_task_completion(
+                goal, current_state, system_one_provider=cfg.system_one_provider
+            )
             if is_done:
                 print(
                     f"\n🎯 [ASSESS] Goal verified COMPLETED by Noul "

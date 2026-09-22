@@ -55,9 +55,9 @@ _SCORE_RUBRIC: list[str] = [
 ]
 
 
-def _get_provider():
+def _get_provider(name: str | None = None):
     """Resolve the configured System One plugin for non-mock judgments."""
-    return get_system_one_provider(load_config().system_one_provider)
+    return get_system_one_provider(name or load_config().system_one_provider)
 
 
 # ── Mock helpers ───────────────────────────────────────────────────────────────
@@ -82,7 +82,7 @@ def _mock_evaluate_state() -> float:
 # ── Public primitives ──────────────────────────────────────────────────────────
 
 def batch_check_validity(
-    state: str, actions: list[str], *, mock: bool | None = None
+    state: str, actions: list[str], *, mock: bool | None = None, system_one_provider: str | None = None
 ) -> dict[str, tuple[bool, float]]:
     """
     Noul primitive — batched pruning gate.
@@ -124,7 +124,7 @@ def batch_check_validity(
         )
 
     try:
-        probabilities = _get_provider().batch_noul({"current_state": state}, questions)
+        probabilities = _get_provider(system_one_provider).batch_noul({"current_state": state}, questions)
         results: dict[str, tuple[bool, float]] = {}
         for key, action in index_to_action.items():
             prob = probabilities[key]
@@ -136,7 +136,7 @@ def batch_check_validity(
 
 
 def get_action_priors(
-    state: str, actions: list[str], *, mock: bool | None = None
+    state: str, actions: list[str], *, mock: bool | None = None, system_one_provider: str | None = None
 ) -> dict[str, float]:
     """
     Choice primitive — policy (prior probability) assignment.
@@ -160,7 +160,7 @@ def get_action_priors(
     criteria: dict[str, None] = {a: None for a in actions}
 
     try:
-        response = _get_provider().choose(
+        response = _get_provider(system_one_provider).choose(
             {"current_state": state},
             "Given the current state, which of the following actions is most likely to make meaningful progress toward the goal?",
             criteria,
@@ -174,13 +174,13 @@ def get_action_priors(
         return {a: 1.0 / n for a in actions}
 
 
-def evaluate_state(goal: str, simulated_state: str, *, mock: bool | None = None) -> float:
+def evaluate_state(goal: str, simulated_state: str, *, mock: bool | None = None, system_one_provider: str | None = None) -> float:
     """
     Score primitive — value function / simulation replacement.
 
     Rates the simulated state against the goal on a 1-10 rubric.
-    TypeSafe Score returns a 0-indexed float (0..9); we add 1 to report
-    on the spec-mandated 1-10 scale.
+    Providers return the public 1–10 scale; values are bounded defensively to
+    preserve the MCTS score invariant.
 
     Returns
     -------
@@ -193,15 +193,13 @@ def evaluate_state(goal: str, simulated_state: str, *, mock: bool | None = None)
         return _mock_evaluate_state()
 
     try:
-        raw_score = _get_provider().score(
+        score = _get_provider(system_one_provider).score(
             {"goal": goal, "simulated_state": simulated_state},
             "Rate how much progress has been made toward the goal based on the simulated state. "
             "Use the 1-10 rubric strictly, where 1 means no progress and 10 means the goal is fully achieved.",
             _SCORE_RUBRIC,
         )
-        # TypeSafe scores are 0-indexed across `len(criteria)` levels.
-        # Add 1 to convert to the 1-10 scale specified in the rubric labels.
-        return raw_score + 1.0
+        return min(10.0, max(1.0, score))
     except (SystemOneProviderError, RuntimeError, ValueError) as exc:
         print(f"[primitives] Score API error: {exc}. Defaulting to 1.")
         return 1.0
@@ -213,6 +211,7 @@ def select_action_count(
     *,
     candidate_counts: list[int] | None = None,
     mock: bool | None = None,
+    system_one_provider: str | None = None,
 ) -> int:
     """
     Use TypeSafe Choice to dynamically select the number of candidate actions
@@ -230,7 +229,7 @@ def select_action_count(
     criteria = {s: None for s in str_counts}
 
     try:
-        response = _get_provider().choose(
+        response = _get_provider(system_one_provider).choose(
             {"goal": goal, "current_state": state},
             "Given the current problem state and overall goal, choose how many distinct next "
             "action candidates should be generated. Options are prime numbers: 2, 3, 5, 7, 11, 13.",
@@ -252,6 +251,7 @@ def check_task_completion(
     state: str,
     *,
     mock: bool | None = None,
+    system_one_provider: str | None = None,
 ) -> tuple[bool, float]:
     """
     Use TypeSafe Noul to determine if the task has been completed or the plan
@@ -268,7 +268,7 @@ def check_task_completion(
         return False, 0.0
 
     try:
-        prob = _get_provider().noul(
+        prob = _get_provider(system_one_provider).noul(
             {"goal": goal, "current_state_or_plan": state},
             "Given the overall goal and the current state / accumulated plan, is the task fully "
             "completed or ready for execution without further search?",
@@ -285,6 +285,7 @@ def check_action_execution(
     evidence: str,
     *,
     mock: bool | None = None,
+    system_one_provider: str | None = None,
 ) -> tuple[bool, float]:
     """Check whether execution evidence supports completion of this exact action."""
     if mock is None:
@@ -292,7 +293,7 @@ def check_action_execution(
     if mock:
         return True, 1.0
     try:
-        confidence = _get_provider().noul(
+        confidence = _get_provider(system_one_provider).noul(
             {"requested_action": action, "execution_evidence": evidence},
             "Does the execution evidence show that the exact requested action was completed? "
             "A zero exit code only shows that commands ran. Reject unrelated edits, placeholder results, and missing requested work.",
@@ -308,6 +309,7 @@ def check_command_alignment(
     command: str,
     *,
     mock: bool | None = None,
+    system_one_provider: str | None = None,
 ) -> tuple[bool, float]:
     """Reject generated commands that do not directly implement the chosen action."""
     if mock is None:
@@ -315,7 +317,7 @@ def check_command_alignment(
     if mock:
         return True, 1.0
     try:
-        confidence = _get_provider().noul(
+        confidence = _get_provider(system_one_provider).noul(
             {"requested_action": action, "proposed_shell_command": command[:12000]},
             "Would these commands directly and completely carry out the requested action? "
             "Reject unrelated work, placeholder data, incomplete scripts, or effects that cannot be determined.",
@@ -331,6 +333,7 @@ def select_simulation_depth(
     *,
     candidate_depths: list[int] | None = None,
     mock: bool | None = None,
+    system_one_provider: str | None = None,
 ) -> int:
     """
     Use TypeSafe Choice to dynamically select the number of simulated lookahead
@@ -346,7 +349,7 @@ def select_simulation_depth(
     criteria = {s: None for s in str_depths}
 
     try:
-        response = _get_provider().choose(
+        response = _get_provider(system_one_provider).choose(
             {"goal": goal, "current_state": state},
             "Given the current problem state and overall goal, choose the simulated lookahead "
             "depth for MCTS. Options are prime numbers: 2, 3, 5.",
@@ -368,6 +371,7 @@ def discriminative_choose_best_action(
     candidates: list[Any],
     *,
     mock: bool | None = None,
+    system_one_provider: str | None = None,
 ) -> Any:
     """
     Use TypeSafe Choice to make the final discriminative decision on which candidate branch
@@ -400,7 +404,7 @@ def discriminative_choose_best_action(
         )
 
     try:
-        response = _get_provider().choose(
+        response = _get_provider(system_one_provider).choose(
             {"goal": goal, "current_state": state},
             "Given the goal, current state context, and MCTS search tree statistics for each "
             "candidate branch, select the best action to execute next.",
