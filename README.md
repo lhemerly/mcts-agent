@@ -5,7 +5,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![TypeSafe Jev Primitives](https://img.shields.io/badge/TypeSafe-Jev%20System%20One-purple.svg)](https://docs.typesafe.ai)
 
-An autonomous reasoning and execution agent powered by **Discriminative Monte Carlo Tree Search (MCTS)**. The system couples **TypeSafe Jev System One Primitives** (`Noul`, `Choice`, `Score`) for lightning-fast, structured discriminative evaluations with **Gemini 3.8 Flash** for action generation in a closed-loop execution environment.
+An autonomous reasoning and execution agent powered by **Discriminative Monte Carlo Tree Search (MCTS)**. The system combines **TypeSafe Jev System One Primitives** (`Noul`, `Choice`, `Score`) for structured discriminative evaluations with configurable agent harnesses such as AGY or Pi for action generation and workspace execution.
 
 Includes an interactive **D3.js Tree Visualizer** to inspect and replay search rollouts and value backpropagation frame-by-frame.
 
