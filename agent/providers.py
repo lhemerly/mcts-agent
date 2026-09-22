@@ -350,7 +350,8 @@ class AGYExecutorProvider(BaseExecutorProvider):
     def execute_action(
         self, action: str, goal: str, workspace_dir: str
     ) -> dict[str, Any]:
-        abs_workspace = _safe_abspath(workspace_dir)
+        workspace_dir = _safe_abspath(workspace_dir)
+        abs_workspace = workspace_dir
         prompt = textwrap.dedent(f"""\
             You are the execution agent in a closed-loop reasoning system.
 
