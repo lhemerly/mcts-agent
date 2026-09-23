@@ -15,7 +15,8 @@ from .harness import HarnessResearchAdapter, MockResearchHarness, ResearchHarnes
 from .models import (PendingOperation, ResearchBrief, ResearchSettings, ResearchState,
                      ResearchStep, StepReport, ValidationResult)
 from .storage import (atomic_write, capture_evidence, confined_path, load_state,
-                      read_object, run_lock, save_state)
+                      create_run_dir, ensure_run_contained, read_object, run_lock,
+                      save_state, verify_evidence)
 from .validation import MockValidator, ResearchScorer, ResearchValidator, SystemOneValidator
 
 Selector = Callable[[ResearchState], tuple[str | None, str | None]]
@@ -34,10 +35,13 @@ def _validate_report(state: ResearchState, report: StepReport, success: bool,
         known_evidence = {e.id: e for e in state.evidence}
         for evidence_id in dict.fromkeys(finding.evidence_ids):
             if evidence_id in known_evidence:
-                captured.append(known_evidence[evidence_id])
+                try:
+                    captured.append(verify_evidence(known_evidence[evidence_id], run_dir))
+                except (OSError, ValueError) as exc:
+                    errors.append(str(exc))
             else:
                 errors.append(f"Unknown evidence ID: {evidence_id}")
-        for path in dict.fromkeys(finding.evidence_paths):
+        for path in dict.fromkeys(finding.evidence_paths) if success else ():
             try:
                 item = capture_evidence(Path(state.workspace), run_dir, path)
                 if item.id not in {e.id for e in captured}:
@@ -115,11 +119,13 @@ def _consume_pending(state: ResearchState, run_dir: Path,
 def _perform(state: ResearchState, run_dir: Path, harness: ResearchHarness,
              action: str, kind: str, search_log: str | None = None) -> None:
     relative = f"operations/{uuid4().hex}.json"
+    ensure_run_contained(Path(state.workspace), run_dir)
     output = run_dir / relative
     output.parent.mkdir(parents=True, exist_ok=True)
     state.pending = PendingOperation(kind=kind, action=action, report_path=relative, search_log=search_log)
     save_state(run_dir, state)  # Commit intent before any external side effects.
     result = harness.perform(state, action, output, kind)
+    ensure_run_contained(Path(state.workspace), run_dir)
     atomic_write(output.with_suffix(".execution.json"), json.dumps(result, default=str, indent=2))
     state.pending.execution_success = (
         result.get("success") is True and result.get("returncode", 0) == 0 and not result.get("skipped", False)
@@ -146,14 +152,15 @@ def run_research(
         run_dir = Path(resume).resolve()
         if run_dir.is_file():
             run_dir = run_dir.parent
+        state = load_state(run_dir)
+        ensure_run_contained(Path(state.workspace), run_dir)
     else:
         if query is None or not query.strip():
             raise ValueError("A non-empty research query is required")
         work = Path(workspace or ".").resolve()
         if not work.is_dir():
             raise ValueError("Workspace must be an existing directory")
-        run_dir = work / ".mcts-research" / uuid4().hex
-        run_dir.mkdir(parents=True)
+        run_dir = create_run_dir(work, uuid4().hex)
     with run_lock(run_dir):
         if resume:
             state = load_state(run_dir)

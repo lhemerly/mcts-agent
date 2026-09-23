@@ -3,11 +3,11 @@
 import json
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 class Record(BaseModel):
-    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+    model_config = ConfigDict(extra="forbid")
 
 
 class Criterion(Record):
@@ -16,12 +16,28 @@ class Criterion(Record):
     validator: str = "system_one"
     required: bool = True
 
+    @field_validator("id", "description", "validator")
+    @classmethod
+    def nonblank_trimmed(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("Value cannot be blank")
+        return value
+
 
 class ResearchBrief(Record):
     scope: str = Field(min_length=1)
-    assumptions: list[str] = Field(default_factory=list)
-    questions: list[str] = Field(default_factory=list)
-    criteria: list[Criterion] = Field(min_length=1)
+    assumptions: list[str] = Field(default_factory=list, max_length=32)
+    questions: list[str] = Field(default_factory=list, max_length=32)
+    criteria: list[Criterion] = Field(min_length=1, max_length=32)
+
+    @field_validator("scope")
+    @classmethod
+    def trim_scope(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("Scope cannot be blank")
+        return value
 
     @model_validator(mode="after")
     def check_criteria(self):
@@ -34,15 +50,31 @@ class ResearchBrief(Record):
 class Finding(Record):
     criterion_id: str
     claim: str = Field(min_length=1)
-    evidence_paths: list[str] = Field(default_factory=list)
-    evidence_ids: list[str] = Field(default_factory=list)
+    evidence_paths: list[str] = Field(default_factory=list, max_length=16)
+    evidence_ids: list[str] = Field(default_factory=list, max_length=32)
+
+    @field_validator("claim")
+    @classmethod
+    def trim_claim(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("Claim cannot be blank")
+        return value
 
 
 class StepReport(Record):
-    summary: str = Field(min_length=1)
-    findings: list[Finding] = Field(default_factory=list)
-    open_questions: list[str] = Field(default_factory=list)
-    answer: str | None = None
+    summary: str = Field(min_length=1, max_length=12000)
+    findings: list[Finding] = Field(default_factory=list, max_length=32)
+    open_questions: list[str] = Field(default_factory=list, max_length=32)
+    answer: str | None = Field(default=None, max_length=32000)
+
+    @field_validator("summary")
+    @classmethod
+    def trim_summary(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("Summary cannot be blank")
+        return value
 
     @model_validator(mode="after")
     def unique_findings(self):
@@ -94,7 +126,7 @@ class PendingOperation(Record):
 class ResearchState(Record):
     schema_version: Literal[1] = 1
     run_id: str
-    query: str = Field(min_length=1)
+    query: str = Field(min_length=1, max_length=32000)
     workspace: str
     run_directory: str | None = None
     mock: bool = False
@@ -108,12 +140,20 @@ class ResearchState(Record):
     answer: str | None = None
     error: str | None = None
 
+    @field_validator("query")
+    @classmethod
+    def trim_query(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("Query cannot be blank")
+        return value
+
     def latest_validations(self) -> dict[str, ValidationResult]:
         return {v.criterion_id: v for step in self.steps for v in step.validations}
 
     def context(self) -> str:
         """Compact prompt view; full history and evidence remain in the notebook."""
-        return json.dumps({
+        context = {
             "query": self.query,
             "full_notebook_directory": self.run_directory,
             "brief": self.brief.model_dump() if self.brief else None,
@@ -123,6 +163,51 @@ class ResearchState(Record):
                           "source_path": e.source_path, "sha256": e.sha256} for e in self.evidence[-12:]],
             "total_evidence_items": len(self.evidence),
             "answer": self.answer,
+        }
+        rendered = json.dumps(context, ensure_ascii=False)
+        if len(rendered) <= 48_000:
+            return rendered
+        # Keep a strict prompt budget even when legacy checkpoints contain large
+        # strings or many accumulated records.
+        compact_brief = None
+        if self.brief:
+            compact_brief = {
+                "scope": self.brief.scope[:4000],
+                "assumptions": [x[:500] for x in self.brief.assumptions[:8]],
+                "questions": [x[:500] for x in self.brief.questions[:8]],
+                "criteria": [
+                    {**c.model_dump(), "description": c.description[:500]}
+                    for c in self.brief.criteria[:16]
+                ],
+            }
+        compact = {
+            "query": self.query[:8000], "full_notebook_directory": self.run_directory,
+            "brief": compact_brief,
+            "latest_validations": {
+                k: {**v.model_dump(), "claim": v.claim[:500], "reason": v.reason[:500]}
+                for k, v in list(self.latest_validations().items())[-16:]
+            },
+            "recent_steps": [
+                {"number": s.number, "action": s.action[:500], "execution_success": s.execution_success,
+                 "report": {"summary": s.report.summary[:1000], "answer": (s.report.answer or "")[:4000]},
+                 "validations": [{**v.model_dump(), "claim": v.claim[:500], "reason": v.reason[:500]}
+                                 for v in s.validations[:16]]}
+                for s in self.steps[-1:]
+            ],
+            "evidence": [{"id": e.id, "snapshot_path": e.snapshot_path,
+                          "source_path": e.source_path[:500], "sha256": e.sha256}
+                         for e in self.evidence[-12:]],
+            "total_evidence_items": len(self.evidence), "answer": (self.answer or "")[:8000],
+        }
+        rendered = json.dumps(compact, ensure_ascii=False)
+        if len(rendered) <= 48_000:
+            return rendered
+        return json.dumps({
+            "query": self.query[:8000],
+            "full_notebook_directory": (self.run_directory or "")[:1000],
+            "brief": {"scope": self.brief.scope[:2000]} if self.brief else None,
+            "recent_steps": [], "latest_validations": {}, "evidence": [],
+            "total_evidence_items": len(self.evidence), "answer": (self.answer or "")[:8000],
         }, ensure_ascii=False)
 
 

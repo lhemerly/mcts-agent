@@ -95,6 +95,7 @@ class ResearchTests(unittest.TestCase):
             self.assertEqual(state.status, "budget_exhausted")
             self.assertIsNone(state.answer)
             self.assertEqual(state.steps[0].validations[0].status, "inconclusive")
+            self.assertEqual(state.evidence, [])
 
     def test_resume_continues_without_replaying_completed_steps(self):
         harness = ScriptedHarness()
@@ -136,8 +137,8 @@ class ResearchTests(unittest.TestCase):
     def test_evidence_paths_and_snapshot_integrity(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            control = root / "control"
-            control.mkdir()
+            control = root / ".mcts-research" / "run"
+            control.mkdir(parents=True)
             for path in ("../escape.txt", str(root / "absolute.txt")):
                 with self.assertRaises(ValueError):
                     capture_evidence(root, control, path)
@@ -151,6 +152,28 @@ class ResearchTests(unittest.TestCase):
             atomic_write(control / item.snapshot_path, "tampered")
             with self.assertRaisesRegex(ValueError, "changed"):
                 load_state(control)
+
+    def test_checkpoint_cannot_change_cached_evidence_text(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            control = root / ".mcts-research" / "run"
+            control.mkdir(parents=True)
+            atomic_write(root / "a.txt", "  exact bytes\r\n")
+            item = capture_evidence(root, control, "a.txt")
+            self.assertEqual((control / item.snapshot_path).read_bytes(), b"  exact bytes\r\n")
+            state = ResearchState(run_id="run", query="Q", workspace=tmp, evidence=[item])
+            save_state(control, state)
+            data = json.loads((control / "checkpoint.json").read_text())
+            data["evidence"][0]["text"] = "forged cache"
+            atomic_write(control / "checkpoint.json", json.dumps(data))
+            with self.assertRaisesRegex(ValueError, "Cached evidence"):
+                load_state(control)
+
+    def test_research_rejects_symlinked_control_root(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as outside:
+            Path(tmp, ".mcts-research").symlink_to(outside, target_is_directory=True)
+            with self.assertRaisesRegex(ValueError, "must not be a symlink"):
+                self.run_case(tmp, harness=ScriptedHarness(), max_steps=1)
 
     def test_invalid_report_stays_failed_without_false_completion(self):
         harness = Mock()

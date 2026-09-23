@@ -11,11 +11,15 @@ from .models import Evidence, ResearchState
 
 
 def atomic_write(path: Path, text: str) -> None:
+    atomic_write_bytes(path, text.encode("utf-8"))
+
+
+def atomic_write_bytes(path: Path, content: bytes) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, name = tempfile.mkstemp(prefix=".checkpoint-", dir=path.parent)
     try:
-        with os.fdopen(fd, "w", encoding="utf-8", newline="") as handle:
-            handle.write(text)
+        with os.fdopen(fd, "wb") as handle:
+            handle.write(content)
             handle.flush()
             os.fsync(handle.fileno())
         os.replace(name, path)
@@ -41,6 +45,7 @@ def run_lock(run_dir: Path):
 
 
 def save_state(run_dir: Path, state: ResearchState) -> None:
+    ensure_run_contained(Path(state.workspace), run_dir)
     # The checkpoint is the authoritative event ledger; completed steps are immutable.
     atomic_write(run_dir / "checkpoint.json", state.model_dump_json(indent=2))
     brief = state.brief
@@ -73,12 +78,27 @@ def save_state(run_dir: Path, state: ResearchState) -> None:
 
 def load_state(run_dir: Path) -> ResearchState:
     state = ResearchState.model_validate_json((run_dir / "checkpoint.json").read_text(encoding="utf-8"))
+    ensure_run_contained(Path(state.workspace), run_dir)
     # Prior claims cannot silently retain support if their captured evidence changed.
     for evidence in state.evidence:
         snapshot = confined_path(run_dir, evidence.snapshot_path)
-        if hashlib.sha256(snapshot.read_bytes()).hexdigest() != evidence.sha256:
-            raise ValueError(f"Evidence snapshot changed: {evidence.id}")
+        verify_evidence(evidence, run_dir)
     return state
+
+
+def verify_evidence(evidence: Evidence, run_dir: Path) -> Evidence:
+    snapshot = confined_path(run_dir, evidence.snapshot_path)
+    content = snapshot.read_bytes()
+    digest = hashlib.sha256(content).hexdigest()
+    try:
+        snapshot_text = content.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise ValueError(f"Evidence snapshot is not UTF-8: {evidence.id}") from exc
+    if digest != evidence.sha256 or evidence.id != f"e-{digest}":
+        raise ValueError(f"Evidence snapshot changed: {evidence.id}")
+    if evidence.text != snapshot_text[:16000] or evidence.truncated != (len(snapshot_text) > 16000):
+        raise ValueError(f"Cached evidence does not match its authenticated snapshot: {evidence.id}")
+    return evidence
 
 
 def confined_path(root: Path, relative: str) -> Path:
@@ -89,6 +109,39 @@ def confined_path(root: Path, relative: str) -> Path:
     if not resolved.is_relative_to(root.resolve()):
         raise ValueError(f"Path escapes the workspace: {relative}")
     return resolved
+
+
+def ensure_run_contained(workspace: Path, run_dir: Path) -> None:
+    """Reject a symlinked control root or run directory before any runner write."""
+    work = workspace.resolve(strict=True)
+    control = work / ".mcts-research"
+    if control.is_symlink():
+        raise ValueError("Research control directory must not be a symlink")
+    if run_dir.parent.absolute() != control.absolute():
+        raise ValueError("Research run directory must be a direct child of workspace/.mcts-research")
+    if run_dir.is_symlink():
+        raise ValueError("Research run directory must not be a symlink")
+    if control.exists() and control.resolve(strict=True) != control:
+        raise ValueError("Research control directory resolves outside the workspace")
+    if run_dir.exists() and run_dir.resolve(strict=True) != run_dir:
+        raise ValueError("Research run directory resolves outside the workspace")
+    if run_dir.resolve(strict=False).parent != control:
+        raise ValueError("Research run directory escapes the workspace")
+
+
+def create_run_dir(workspace: Path, run_id: str) -> Path:
+    """Create a private run directory under a non-symlinked workspace control root."""
+    work = workspace.resolve(strict=True)
+    control = work / ".mcts-research"
+    if control.is_symlink():
+        raise ValueError("Research control directory must not be a symlink")
+    control.mkdir(mode=0o700, exist_ok=True)
+    if control.is_symlink() or not control.is_dir() or control.resolve(strict=True) != control:
+        raise ValueError("Research control directory must resolve inside the workspace")
+    run_dir = control / run_id
+    run_dir.mkdir(mode=0o700)
+    ensure_run_contained(work, run_dir)
+    return run_dir
 
 
 def capture_evidence(workspace: Path, run_dir: Path, relative: str) -> Evidence:
@@ -105,7 +158,8 @@ def capture_evidence(workspace: Path, run_dir: Path, relative: str) -> Evidence:
         raise ValueError("Empty artifact is not evidence")
     digest = hashlib.sha256(content).hexdigest()
     snapshot = f"evidence/{digest}.txt"
-    atomic_write(run_dir / snapshot, text)
+    ensure_run_contained(workspace, run_dir)
+    atomic_write_bytes(run_dir / snapshot, content)
     return Evidence(id=f"e-{digest}", source_path=relative, snapshot_path=snapshot,
                     sha256=digest, text=text[:16000], truncated=len(text) > 16000)
 
