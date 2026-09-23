@@ -1064,6 +1064,11 @@ def visualize(
             console.print("\n[yellow]Agent web UI server stopped.[/yellow]")
 
 
+from agent.research.cli import register_research_command
+
+register_research_command(app)
+
+
 def main() -> None:
     app()
 
