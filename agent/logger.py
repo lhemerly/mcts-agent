@@ -25,7 +25,7 @@ import json
 import os
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 
 class MCTSLogger:
@@ -37,8 +37,10 @@ class MCTSLogger:
         log_dir: str = "logs",
         step: int | None = None,
         run_id: str | None = None,
+        event_sink: Callable[[dict[str, Any]], None] | None = None,
     ) -> None:
         self._events: list[dict[str, Any]] = []
+        self._event_sink = event_sink
         self._meta: dict[str, Any] = {
             "goal": goal,
             "initial_state": initial_state,
@@ -123,7 +125,10 @@ class MCTSLogger:
         return self.log_path
 
     def _emit(self, event_type: str, **kwargs: Any) -> None:
-        self._events.append({"type": event_type, **kwargs})
+        event = {"type": event_type, **kwargs}
+        self._events.append(event)
+        if self._event_sink is not None:
+            self._event_sink(event)
 
 
 def save_agent_summary(
