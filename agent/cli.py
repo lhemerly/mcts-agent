@@ -16,10 +16,13 @@ AI-Friendly & Headless Features:
 from __future__ import annotations
 
 import contextlib
+from http.cookies import SimpleCookie
 import http.server
+import ipaddress
 import importlib.resources
 import json
 import os
+import secrets
 import sys
 import threading
 import webbrowser
@@ -27,6 +30,7 @@ from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Optional
+from urllib.parse import urlsplit
 
 from dotenv import load_dotenv
 
@@ -710,7 +714,7 @@ def visualize(
         None,
         "--dir",
         "-d",
-        help="Workspace directory served by the app, including logs and image artifacts (default: project root).",
+        help="Workspace directory served by the app, including logs and image artifacts (default: current directory).",
     ),
     json_output: bool = typer.Option(
         False,
@@ -747,8 +751,7 @@ def visualize(
     if directory:
         serve_dir = directory.resolve()
     else:
-        repo_root = Path(__file__).resolve().parent.parent
-        serve_dir = repo_root
+        serve_dir = Path.cwd().resolve()
 
     if visualizer_path is None or not visualizer_path.exists():
         if is_json:
@@ -790,6 +793,7 @@ def visualize(
                 self.condition.notify_all()
 
     live_run = LiveRun()
+    session_token = secrets.token_urlsafe(32)
 
     class VisualizerHandler(http.server.SimpleHTTPRequestHandler):
         def __init__(self, *args, **kwargs):
@@ -798,9 +802,15 @@ def visualize(
         def do_GET(self):
             requested_path = self.path.partition("?")[0]
             if requested_path == "/api/events":
+                if not self._has_session_token():
+                    self.send_error(403)
+                    return
                 self._stream_events()
                 return
             if requested_path == "/api/logs":
+                if not self._has_session_token():
+                    self.send_error(403)
+                    return
                 self._json_response(200, {"logs": self._list_logs()})
                 return
             if requested_path in ("/", ""):
@@ -815,6 +825,10 @@ def visualize(
                 content = visualizer_path.read_bytes()
                 self.send_header("Content-Length", str(len(content)))
                 self.send_header("Cache-Control", "no-cache")
+                self.send_header(
+                    "Set-Cookie",
+                    f"MCTS-Session={session_token}; Path=/; HttpOnly; SameSite=Strict",
+                )
                 self.end_headers()
                 self.wfile.write(content)
                 return
@@ -823,6 +837,33 @@ def visualize(
         def do_POST(self):
             if self.path.partition("?")[0] != "/api/run":
                 self.send_error(404)
+                return
+            if not self._has_session_token():
+                self.send_error(403)
+                return
+            origin = self.headers.get("Origin", "")
+            host_header = self.headers.get("Host", "")
+            try:
+                parsed_origin = urlsplit(origin)
+                parsed_host = urlsplit(f"http://{host_header}")
+                origin_name = (parsed_origin.hostname or "").lower()
+                parsed_host_name = (parsed_host.hostname or "").lower()
+                is_localhost = origin_name == parsed_host_name == "localhost"
+                if not is_localhost:
+                    origin_host = ipaddress.ip_address(origin_name)
+                origin_valid = (
+                    parsed_origin.scheme == "http"
+                    and (parsed_origin.port or 80) == port
+                    and parsed_origin.netloc == parsed_host.netloc
+                    and (is_localhost or parsed_host_name == str(origin_host))
+                )
+            except ValueError:
+                origin_valid = False
+            if not origin_valid:
+                self.send_error(403, "Request origin does not match this UI")
+                return
+            if self.headers.get_content_type() != "application/json":
+                self.send_error(415, "Content-Type must be application/json")
                 return
             try:
                 length = int(self.headers.get("Content-Length", "0"))
@@ -875,7 +916,7 @@ def visualize(
                         summary = run_closed_loop_agent(
                             goal=goal, initial_state=context, max_steps=steps,
                             actions_per_node=width, expansion_depth=depth, execute=execute,
-                            workspace_dir=str(serve_dir), config=cfg,
+                            workspace_dir=str(serve_dir), log_dir=str(serve_dir / "logs"), config=cfg,
                             event_sink=lambda event: live_run.publish({"kind": "event", "event": event}),
                         )
                     output.flush()
@@ -901,6 +942,15 @@ def visualize(
             threading.Thread(target=run_live_agent, daemon=True, name="mcts-live-run").start()
             self._json_response(202, {"status": "started"})
 
+        def _has_session_token(self) -> bool:
+            cookies = SimpleCookie()
+            try:
+                cookies.load(self.headers.get("Cookie", ""))
+            except Exception:
+                return False
+            supplied = cookies.get("MCTS-Session")
+            return supplied is not None and secrets.compare_digest(supplied.value, session_token)
+
         def _list_logs(self) -> list[dict[str, Any]]:
             logs_dir = Path(serve_dir) / "logs"
             if not logs_dir.is_dir():
@@ -924,6 +974,7 @@ def visualize(
             self.send_response(code)
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.send_header("Content-Length", str(len(encoded)))
+            self.send_header("X-Content-Type-Options", "nosniff")
             self.end_headers()
             self.wfile.write(encoded)
 
@@ -950,6 +1001,7 @@ def visualize(
 
         def end_headers(self):
             self.send_header("Cache-Control", "no-cache")
+            self.send_header("X-Content-Type-Options", "nosniff")
             super().end_headers()
 
         def log_message(self, format, *args):
