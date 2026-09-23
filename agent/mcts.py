@@ -33,7 +33,7 @@ import random
 import subprocess
 import textwrap
 from datetime import datetime
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 
 from agent.config import AgentConfig, load_config
 from agent.logger import MCTSLogger, save_agent_summary
@@ -375,6 +375,7 @@ def run_mcts(
     log_dir: str = "logs",
     config: AgentConfig | None = None,
     reuse_tree: bool = False,
+    event_sink: Callable[[dict[str, Any]], None] | None = None,
 ) -> tuple[Node, str]:
     """
     Run MCTS from `root` to evaluate candidates and select the single best immediate action.
@@ -425,6 +426,7 @@ def run_mcts(
         log_dir=log_dir,
         step=step,
         run_id=run_id,
+        event_sink=event_sink,
     )
     logger.emit_init(root)
 
@@ -691,6 +693,7 @@ def run_closed_loop_agent(
     log_dir: str = "logs",
     workspace_dir: str | None = None,
     config: AgentConfig | None = None,
+    event_sink: Callable[[dict[str, Any]], None] | None = None,
 ) -> dict[str, Any]:
     """
     Run the closed-loop MCTS agent with tree reuse and action vocabulary recombination.
@@ -783,6 +786,7 @@ def run_closed_loop_agent(
                 log_dir=resolved_log_dir,
                 step=step,
                 run_id=run_id,
+                event_sink=event_sink,
             )
             rescore_logger.emit_init(_carried_tree)
             scores = _rescore_leaves(_carried_tree, goal, rescore_logger, cfg)
@@ -832,6 +836,7 @@ def run_closed_loop_agent(
             log_dir=resolved_log_dir,
             config=cfg,
             reuse_tree=reused_tree,
+            event_sink=event_sink,
         )
 
         chosen_action = best_node.action_taken
@@ -861,6 +866,16 @@ def run_closed_loop_agent(
                 "stderr": "",
                 "returncode": 0,
             }
+
+        if event_sink is not None:
+            image_files = [
+                path for path in exec_result.get("changed_files", [])
+                if os.path.splitext(path)[1].lower() in {
+                    ".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".svg"
+                }
+            ]
+            if image_files:
+                event_sink({"type": "artifact", "images": image_files})
 
         # ── 3. REVIEW ─────────────────────────────────────────────────────────
         print(f"\n[REVIEW] Inspecting execution outcome & environment changes...")

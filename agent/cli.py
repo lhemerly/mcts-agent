@@ -5,7 +5,7 @@ Provides commands:
   - run: Execute closed-loop MCTS search with custom parameters.
   - demo: Run pre-configured task management demo.
   - interactive: Step-by-step human-in-the-loop search and execution.
-  - visualize: Local web server hosting visualizer.html to inspect search trees.
+  - visualize: Local agent web UI for prompts, live output, artifacts, and logs.
 
 AI-Friendly & Headless Features:
   - --json: Clean machine-parseable JSON summary without ANSI codes on stdout.
@@ -16,14 +16,21 @@ AI-Friendly & Headless Features:
 from __future__ import annotations
 
 import contextlib
+from http.cookies import SimpleCookie
 import http.server
+import ipaddress
 import importlib.resources
 import json
 import os
+import secrets
 import sys
+import threading
 import webbrowser
+from dataclasses import replace
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Optional
+from urllib.parse import urlsplit
 
 from dotenv import load_dotenv
 
@@ -191,7 +198,7 @@ def _render_summary(console: Console, summary: dict[str, Any]) -> None:
     summary_file = summary.get("summary_file")
     if summary_file:
         console.print(f"\n[dim]Complete Run Summary saved to:[/dim] [cyan]{summary_file}[/cyan]")
-    console.print("[dim]Launch visualizer with:[/dim] [bold cyan]mcts-agent visualize[/bold cyan]\n")
+    console.print("[dim]Open the agent web UI with:[/dim] [bold cyan]mcts-agent visualize[/bold cyan]\n")
 
 
 @app.callback()
@@ -693,7 +700,7 @@ def interactive(
 def visualize(
     ctx: typer.Context,
     port: int = typer.Option(
-        8000, "--port", "-p", help="Port for local HTTP visualizer server."
+        8000, "--port", "-p", help="Port for the local agent web UI."
     ),
     host: str = typer.Option(
         "127.0.0.1", "--host", help="Host interface to bind server to."
@@ -701,13 +708,13 @@ def visualize(
     browser: bool = typer.Option(
         True,
         "--browser/--no-browser",
-        help="Open visualizer in browser automatically.",
+        help="Open the web app in browser automatically.",
     ),
     directory: Optional[Path] = typer.Option(
         None,
         "--dir",
         "-d",
-        help="Directory containing visualizer.html and logs (default: project root).",
+        help="Workspace directory served by the app, including logs and image artifacts (default: current directory).",
     ),
     json_output: bool = typer.Option(
         False,
@@ -726,7 +733,7 @@ def visualize(
         help="Disable ANSI color output.",
     ),
 ):
-    """Start a local HTTP server to replay search trees in visualizer.html."""
+    """Start the local MCTS Agent Web UI for prompts, live output, artifacts, and logs."""
     is_json = json_output or ctx.obj.get("json", False)
     is_quiet = quiet or ctx.obj.get("quiet", False)
     is_no_color = no_color or ctx.obj.get("no_color", False)
@@ -743,33 +750,8 @@ def visualize(
 
     if directory:
         serve_dir = directory.resolve()
-        if (serve_dir / "visualizer.html").is_file():
-            visualizer_path = serve_dir / "visualizer.html"
     else:
-        repo_root = Path(__file__).resolve().parent.parent
-        try:
-            cwd_path = Path.cwd()
-        except Exception:
-            cwd_path = Path(".")
-        if (cwd_path / "visualizer.html").exists():
-            serve_dir = cwd_path.resolve()
-            visualizer_path = visualizer_path or (serve_dir / "visualizer.html")
-        elif (repo_root / "visualizer.html").exists():
-            serve_dir = repo_root
-            visualizer_path = visualizer_path or (serve_dir / "visualizer.html")
-        else:
-            serve_dir = cwd_path.resolve()
-
-    if visualizer_path is None or not visualizer_path.exists():
-        repo_root = Path(__file__).resolve().parent.parent
-        try:
-            cwd_path = Path.cwd()
-        except Exception:
-            cwd_path = Path(".")
-        if (cwd_path / "visualizer.html").exists():
-            visualizer_path = cwd_path / "visualizer.html"
-        elif (repo_root / "visualizer.html").exists():
-            visualizer_path = repo_root / "visualizer.html"
+        serve_dir = Path.cwd().resolve()
 
     if visualizer_path is None or not visualizer_path.exists():
         if is_json:
@@ -781,7 +763,37 @@ def visualize(
             f"[yellow]Warning: visualizer.html not found in {serve_dir}. Serving directory anyway.[/yellow]"
         )
 
-    url = f"http://{host}:{port}/visualizer.html"
+    url = f"http://{host}:{port}/"
+
+    class LiveRun:
+        """One local run plus its SSE-readable event history."""
+        def __init__(self) -> None:
+            self.messages: list[dict[str, Any]] = []
+            self.condition = threading.Condition()
+            self.running = False
+
+        def publish(self, message: dict[str, Any]) -> None:
+            with self.condition:
+                self.messages.append(message)
+                self.condition.notify_all()
+
+        def begin(self, metadata: dict[str, Any]) -> bool:
+            with self.condition:
+                if self.running:
+                    return False
+                self.messages = [{"kind": "meta", "meta": metadata}]
+                self.running = True
+                self.condition.notify_all()
+                return True
+
+        def finish(self, status: str, **details: Any) -> None:
+            with self.condition:
+                self.running = False
+                self.messages.append({"kind": "status", "status": status, **details})
+                self.condition.notify_all()
+
+    live_run = LiveRun()
+    session_token = secrets.token_urlsafe(32)
 
     class VisualizerHandler(http.server.SimpleHTTPRequestHandler):
         def __init__(self, *args, **kwargs):
@@ -789,21 +801,207 @@ def visualize(
 
         def do_GET(self):
             requested_path = self.path.partition("?")[0]
+            if requested_path == "/api/events":
+                if not self._has_session_token():
+                    self.send_error(403)
+                    return
+                self._stream_events()
+                return
+            if requested_path == "/api/logs":
+                if not self._has_session_token():
+                    self.send_error(403)
+                    return
+                self._json_response(200, {"logs": self._list_logs()})
+                return
             if requested_path in ("/", ""):
                 self.path = "/visualizer.html"
-            if self.path == "/visualizer.html" and visualizer_path and visualizer_path.is_file():
-                if not (serve_dir / "visualizer.html").is_file():
-                    self.send_response(200)
-                    self.send_header("Content-Type", "text/html; charset=utf-8")
-                    content = visualizer_path.read_bytes()
-                    self.send_header("Content-Length", str(len(content)))
-                    self.end_headers()
-                    self.wfile.write(content)
-                    return
+                requested_path = "/visualizer.html"
+            # Always serve the resolved visualizer asset. A project-root
+            # visualizer.html may be a stale copy; letting SimpleHTTPRequestHandler
+            # serve it here silently bypasses the current packaged UI.
+            if requested_path == "/visualizer.html" and visualizer_path and visualizer_path.is_file():
+                self.send_response(200)
+                self.send_header("Content-Type", "text/html; charset=utf-8")
+                content = visualizer_path.read_bytes()
+                self.send_header("Content-Length", str(len(content)))
+                self.send_header("Cache-Control", "no-cache")
+                self.send_header(
+                    "Set-Cookie",
+                    f"MCTS-Session={session_token}; Path=/; HttpOnly; SameSite=Strict",
+                )
+                self.end_headers()
+                self.wfile.write(content)
+                return
             return super().do_GET()
+
+        def do_POST(self):
+            if self.path.partition("?")[0] != "/api/run":
+                self.send_error(404)
+                return
+            if not self._has_session_token():
+                self.send_error(403)
+                return
+            origin = self.headers.get("Origin", "")
+            host_header = self.headers.get("Host", "")
+            try:
+                parsed_origin = urlsplit(origin)
+                parsed_host = urlsplit(f"http://{host_header}")
+                origin_name = (parsed_origin.hostname or "").lower()
+                parsed_host_name = (parsed_host.hostname or "").lower()
+                is_localhost = origin_name == parsed_host_name == "localhost"
+                if not is_localhost:
+                    origin_host = ipaddress.ip_address(origin_name)
+                origin_valid = (
+                    parsed_origin.scheme == "http"
+                    and (parsed_origin.port or 80) == port
+                    and parsed_origin.netloc == parsed_host.netloc
+                    and (is_localhost or parsed_host_name == str(origin_host))
+                )
+            except ValueError:
+                origin_valid = False
+            if not origin_valid:
+                self.send_error(403, "Request origin does not match this UI")
+                return
+            if self.headers.get_content_type() != "application/json":
+                self.send_error(415, "Content-Type must be application/json")
+                return
+            try:
+                length = int(self.headers.get("Content-Length", "0"))
+                payload = json.loads(self.rfile.read(length).decode("utf-8"))
+                goal = str(payload.get("goal", "")).strip()
+                if not goal:
+                    raise ValueError("A goal is required.")
+                context = str(payload.get("context", "")).strip() or "Work on the requested goal in the selected workspace."
+                steps = max(1, min(int(payload.get("steps", 1)), 10))
+                width = max(1, min(int(payload.get("width", 3)), 5))
+                depth = max(1, min(int(payload.get("depth", 2)), 4))
+                mock = bool(payload.get("mock", False))
+                execute = bool(payload.get("execute", False))
+            except (ValueError, TypeError, json.JSONDecodeError) as exc:
+                self._json_response(400, {"error": f"Invalid run request: {exc}"})
+                return
+            metadata = {"goal": goal, "initial_state": context, "iterations": width ** depth, "live": True}
+            if not live_run.begin(metadata):
+                self._json_response(409, {"error": "A run is already in progress."})
+                return
+
+            def run_live_agent() -> None:
+                prior_mock = os.environ.get("USE_MOCK_PRIMITIVES")
+                output = None
+
+                class RunOutput:
+                    """Forward complete console lines to the live output panel."""
+                    def __init__(self) -> None:
+                        self.pending = ""
+
+                    def write(self, chunk: str) -> int:
+                        self.pending += chunk
+                        while "\n" in self.pending:
+                            line, self.pending = self.pending.split("\n", 1)
+                            live_run.publish({"kind": "text", "text": line + "\n"})
+                        return len(chunk)
+
+                    def flush(self) -> None:
+                        if self.pending:
+                            live_run.publish({"kind": "text", "text": self.pending})
+                            self.pending = ""
+
+                try:
+                    cfg = load_config()
+                    if mock:
+                        cfg = replace(cfg, planner_provider="mock", executor_provider="mock")
+                        os.environ["USE_MOCK_PRIMITIVES"] = "true"
+                    output = RunOutput()
+                    with contextlib.redirect_stdout(output):
+                        summary = run_closed_loop_agent(
+                            goal=goal, initial_state=context, max_steps=steps,
+                            actions_per_node=width, expansion_depth=depth, execute=execute,
+                            workspace_dir=str(serve_dir), log_dir=str(serve_dir / "logs"), config=cfg,
+                            event_sink=lambda event: live_run.publish({"kind": "event", "event": event}),
+                        )
+                    output.flush()
+                    image_files = sorted({
+                        path
+                        for step in summary.get("steps", [])
+                        for path in step.get("execution", {}).get("changed_files", [])
+                        if Path(path).suffix.lower() in {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".svg"}
+                    })
+                    live_run.publish({"kind": "artifact", "images": image_files})
+                    live_run.finish("complete", summary=summary)
+                except Exception as exc:
+                    if output is not None:
+                        output.flush()
+                    live_run.finish("error", error=str(exc))
+                finally:
+                    if mock:
+                        if prior_mock is None:
+                            os.environ.pop("USE_MOCK_PRIMITIVES", None)
+                        else:
+                            os.environ["USE_MOCK_PRIMITIVES"] = prior_mock
+
+            threading.Thread(target=run_live_agent, daemon=True, name="mcts-live-run").start()
+            self._json_response(202, {"status": "started"})
+
+        def _has_session_token(self) -> bool:
+            cookies = SimpleCookie()
+            try:
+                cookies.load(self.headers.get("Cookie", ""))
+            except Exception:
+                return False
+            supplied = cookies.get("MCTS-Session")
+            return supplied is not None and secrets.compare_digest(supplied.value, session_token)
+
+        def _list_logs(self) -> list[dict[str, Any]]:
+            logs_dir = Path(serve_dir) / "logs"
+            if not logs_dir.is_dir():
+                return []
+            entries = []
+            for path in sorted(logs_dir.glob("*.json"), key=lambda p: p.stat().st_mtime, reverse=True):
+                try:
+                    payload = json.loads(path.read_text(encoding="utf-8"))
+                    entries.append({
+                        "name": path.name,
+                        "path": f"logs/{path.name}",
+                        "goal": payload.get("meta", {}).get("goal") or payload.get("goal", ""),
+                        "updated": datetime.fromtimestamp(path.stat().st_mtime).isoformat(timespec="minutes"),
+                    })
+                except (OSError, json.JSONDecodeError):
+                    continue
+            return entries
+
+        def _json_response(self, code: int, body: dict[str, Any]) -> None:
+            encoded = json.dumps(body).encode("utf-8")
+            self.send_response(code)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Content-Length", str(len(encoded)))
+            self.send_header("X-Content-Type-Options", "nosniff")
+            self.end_headers()
+            self.wfile.write(encoded)
+
+        def _stream_events(self) -> None:
+            self.send_response(200)
+            self.send_header("Content-Type", "text/event-stream")
+            self.send_header("Cache-Control", "no-cache")
+            self.send_header("Connection", "keep-alive")
+            self.end_headers()
+            cursor = 0
+            try:
+                while True:
+                    with live_run.condition:
+                        if cursor >= len(live_run.messages):
+                            live_run.condition.wait(timeout=1)
+                        pending = live_run.messages[cursor:]
+                        cursor = len(live_run.messages)
+                    for message in pending:
+                        self.wfile.write(b"data: " + json.dumps(message).encode("utf-8") + b"\n\n")
+                    if pending:
+                        self.wfile.flush()
+            except (BrokenPipeError, ConnectionResetError):
+                return
 
         def end_headers(self):
             self.send_header("Cache-Control", "no-cache")
+            self.send_header("X-Content-Type-Options", "nosniff")
             super().end_headers()
 
         def log_message(self, format, *args):
@@ -841,13 +1039,13 @@ def visualize(
     elif not is_quiet:
         console.print(
             Panel(
-                f"[bold green]MCTS Search Tree Visualizer Server[/bold green]\n\n"
+                f"[bold green]MCTS Agent Web UI[/bold green]\n\n"
                 f"[bold]URL:[/bold] [link={url}]{url}[/link]\n"
                 f"[bold]Serving Directory:[/bold] [dim]{serve_dir}[/dim]\n"
                 f"[bold]Logs Directory:[/bold] [dim]{serve_dir / 'logs'}[/dim]\n\n"
-                f"[dim]Load any JSON log from the 'logs' folder to inspect the search tree.[/dim]\n"
+                f"[dim]Prompt a run, follow its output, preview image artifacts, and browse saved logs.[/dim]\n"
                 f"[bold yellow]Press Ctrl+C to stop the server.[/bold yellow]",
-                title="[bold cyan]Tree Visualizer[/bold cyan]",
+                title="[bold cyan]Agent Web UI[/bold cyan]",
                 border_style="cyan",
             )
         )
@@ -863,7 +1061,7 @@ def visualize(
             httpd.serve_forever()
     except KeyboardInterrupt:
         if not is_json and not is_quiet:
-            console.print("\n[yellow]Visualizer server stopped.[/yellow]")
+            console.print("\n[yellow]Agent web UI server stopped.[/yellow]")
 
 
 def main() -> None:

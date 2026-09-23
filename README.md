@@ -5,9 +5,9 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![TypeSafe Jev Primitives](https://img.shields.io/badge/TypeSafe-Jev%20System%20One-purple.svg)](https://docs.typesafe.ai)
 
-An autonomous reasoning and execution agent powered by **Discriminative Monte Carlo Tree Search (MCTS)**. The system combines **TypeSafe Jev System One Primitives** (`Noul`, `Choice`, `Score`) for structured discriminative evaluations with configurable agent harnesses such as AGY or Pi for action generation and workspace execution.
+An autonomous reasoning and execution agent powered by **Discriminative Monte Carlo Tree Search (MCTS)**. The system couples **TypeSafe Jev System One Primitives** (`Noul`, `Choice`, `Score`) for lightning-fast, structured discriminative evaluations with **Gemini 3.8 Flash** for action generation in a closed-loop execution environment.
 
-Includes an interactive **D3.js Tree Visualizer** to inspect and replay search rollouts and value backpropagation frame-by-frame.
+Includes a local **MCTS Agent Web UI** for prompting the agent, following its output and image artifacts live, and loading saved run logs.
 
 ---
 
@@ -17,7 +17,7 @@ Includes an interactive **D3.js Tree Visualizer** to inspect and replay search r
 - **Low Tree Reuse Threshold**: After execution, grounded surviving paths are rescored. The tree is rebuilt only when no actionable path reaches the reuse threshold.
 - **Dynamic Prime Branching (`Choice`)**: Dynamically samples expansion widths from prime numbers ($2, 3, 5, 7, 11, 13$) based on state uncertainty and goal complexity.
 - **Closed-Loop Execution & Grounding**: Follows a strict cycle of Plan & Choose -> Execute -> Review -> Adapt -> Assess. Only the immediate winning action is executed; git diffs and terminal observations are folded back into context for subsequent decisions.
-- **Interactive D3 Visualizer**: Load generated JSON search logs directly in `visualizer.html` to replay search trees, inspect PUCT scores, and analyze state trajectories.
+- **Agent Web UI**: Prompt the agent, follow its live text output, preview changed image files, and browse or import run logs.
 
 ---
 
@@ -74,7 +74,7 @@ Large language models (LLMs) are System Two text-generators. When software needs
 
 | Primitive | Role in MCTS | Mechanism & Benefit |
 | :--- | :--- | :--- |
-| **`Noul`** | **Execution Checks** & **Early Stopping** | Evaluates whether execution evidence supports completion of the selected action and whether the overall goal is complete. It does not prune proposed search paths. |
+| **`Noul`** | **Execution Checks** & **Early Stopping** | Evaluates whether a proposed command matches the selected action, whether execution evidence supports completion, and whether the overall goal is complete. It does not prune proposed search paths. |
 | **`Choice`** | **Action Priors** & **Dynamic Branching** | Returns normalized probability distributions across discrete candidates. Assigns initial policy prior probabilities $P(s, a)$ used in the PUCT formula. Also selects optimal branching factor from primes ($2, 3, 5, 7, 11, 13$). |
 | **`Score`** | **State Value Heuristic** | Evaluates states on a continuous 1–10 rubric. Replaces costly, random Monte Carlo rollouts with a fast discriminative heuristic value estimate $V(s)$. |
 
@@ -89,38 +89,26 @@ $$\text{PUCT}(s, a) = Q(s, a) + c_{\text{puct}} \cdot P(s, a) \cdot \frac{\sqrt{
 
 ---
 
-## Visualizer Replay Guide
+## Agent Web UI
 
-The repository includes a standalone web visualizer [`visualizer.html`](visualizer.html) built with D3.js.
+The local web UI is served by `mcts-agent visualize`.
 
-### How to Run the Visualizer
+### Start and use the UI
 
 1. **Via the CLI tool**:
    ```bash
    mcts-agent visualize --port 8000
    ```
-   This automatically serves the repository root over HTTP and launches `http://127.0.0.1:8000/visualizer.html` in your default browser.
+   This serves the project workspace and opens the app in your browser.
 
-2. **Or open directly**:
-   ```bash
-   # Option A: Open directly in your browser
-   open visualizer.html     # macOS
-   xdg-open visualizer.html # Linux
+2. **Prompt and run**:
+   - Enter a goal and optional context, then choose the search depth and branching factor.
+   - Mock mode is enabled by default. Workspace execution is optional.
+   - Follow the agent's console output and MCTS events live. Changed image files appear in the artifact gallery.
 
-   # Option B: Run via standard http.server
-   python3 -m http.server 8000
-   # Then open http://localhost:8000/visualizer.html
-   ```
-
-2. **Load Search Logs**:
-   - Click the **"📂 Load JSON Log"** button in the top navigation bar.
-   - Select any run log from the `logs/` directory (e.g. `logs/mcts_20260915_235315_step1.json`).
-
-3. **Explore the Search Tree**:
-   - **Playback Controls**: Use Play ($\blacktriangleright$), Pause ($\mathbf{||}$), Step Forward ($\mathbf{>|}$), and Step Backward ($|\mathbf{<}$) to watch the tree expand iteration-by-iteration.
-   - **Timeline Scrubber**: Drag the slider across search iterations.
-   - **Node Details**: Click any node in the SVG canvas to view its accumulated visits, average score, prior probability, simulated state, and child branches in the right-hand inspection drawer.
-   - **Candidate Inspector**: Review generated actions and the paths they form.
+3. **Review prior runs**:
+   - Open **Run history** to browse saved JSON logs in `logs/`.
+   - Import an event log from disk with **Load log**.
 
 ---
 
@@ -131,7 +119,7 @@ The repository includes a standalone web visualizer [`visualizer.html`](visualiz
 - Python $\ge$ 3.10
 - Git
 - [TypeSafe API Key](https://typesafe.ai)
-- An execution harness: Antigravity CLI (`agy`) or [Pi](https://github.com/badlogic/pi-mono)
+- Antigravity CLI (`agy`) or Gemini API key
 
 ### Installation
 
@@ -156,37 +144,6 @@ Create a `.env` file in the project root:
 TYPESAFE_API_KEY=your_typesafe_api_key_here
 # Optional model overrides:
 AGY_MODEL=gemini-3.8-flash-medium
-```
-
-### Harness Configuration
-
-`mcts-agent` delegates planning and execution to a harness instead of calling a
-model HTTP endpoint or shell directly. Choose `agy`, `pi`, or `mock` in
-`antigravity.toml` (or with `--planner` and `--executor`). Pi manages its own
-model configuration, so it can use local or hosted models such as Qwen and
-DeepSeek without adding provider-specific model code here.
-
-```toml
-[providers]
-planner = "pi"
-executor = "pi"
-```
-
-### Plugin connectors
-
-Harnesses and System One judgment backends are extensible without modifying the
-core factory code. A harness plugin registers a planner and/or executor through
-`agent.providers.register_harness`; a judgment plugin implements
-`agent.system_one.BaseSystemOneProvider` and registers with
-`register_system_one_provider`. Packages can also expose zero-argument entry
-points in the `mcts_agent.harnesses` and `mcts_agent.system_one` groups; they
-are discovered lazily at first use.
-
-Choose a System One provider in configuration:
-
-```toml
-[system_one]
-provider = "typesafe"
 ```
 
 ---
@@ -229,9 +186,9 @@ Interactively inspect MCTS action recommendations and approve, skip, or manually
 mcts-agent interactive
 ```
 
-### 5. Launch the Visualizer Server
+### 5. Launch the Agent Web UI
 
-Start a local HTTP server serving the D3 visualizer:
+Open the local app to prompt the agent, follow live output, preview image artifacts, and load saved logs:
 
 ```bash
 mcts-agent visualize --port 8000
@@ -300,7 +257,7 @@ Example JSON response:
 - `mcts-agent run [OPTIONS]`: Run closed-loop MCTS search with custom goal, state, and execution options.
 - `mcts-agent demo [OPTIONS]`: Run pre-configured task management demo.
 - `mcts-agent interactive [OPTIONS]`: Step-by-step human-in-the-loop search with manual approval.
-- `mcts-agent visualize [OPTIONS]`: Launch local HTTP server for `visualizer.html`.
+- `mcts-agent visualize [OPTIONS]`: Launch the local agent web UI and run history.
 
 ### Common Options (`run` & `demo`)
 
@@ -324,7 +281,7 @@ Example JSON response:
 
 | Option | Short | Default | Description |
 | :--- | :--- | :--- | :--- |
-| `--port` | `-p` | `8000` | Port for local HTTP visualizer server |
+| `--port` | `-p` | `8000` | Port for the local agent web UI |
 | `--host` | | `127.0.0.1` | Host interface to bind server to |
 | `--browser` / `--no-browser` | | `True` | Automatically open default web browser |
 
@@ -336,11 +293,11 @@ Example JSON response:
 mcts-agent/
 ├── agent/
 │   ├── __init__.py
-│   ├── logger.py         # Structured JSON event emission for visualizer replay
+│   ├── logger.py         # Structured JSON event emission for live output and logs
 │   ├── mcts.py           # Selection, Expansion, Simulation, Backpropagation loop
 │   ├── node.py           # Search tree Node data structure & PUCT calculations
 │   └── primitives.py     # TypeSafe Jev primitives (Noul, Choice, Score) wrappers
-├── logs/                 # Search event logs & run summaries (replayable in visualizer)
+├── logs/                 # Search event logs and run summaries
 ├── prompts/
 │   └── rubrics.txt       # Evaluation rubrics and reference criteria
 ├── tests/
@@ -357,7 +314,7 @@ mcts-agent/
 ├── main.py               # Main CLI entrypoint for closed-loop execution
 ├── run_pure_mcts.py      # Standalone script for deep pure MCTS exploration
 ├── run_test.py           # Integration benchmark runner
-└── visualizer.html       # Standalone D3.js interactive search tree visualizer
+└── agent/visualizer.html # Local prompt, output, artifacts, and run history UI
 ```
 
 ---
