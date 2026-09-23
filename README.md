@@ -150,6 +150,23 @@ AGY_MODEL=gemini-3.8-flash-medium
 
 ## Usage
 
+### Research mode: open-ended investigations
+
+Research mode adds a structured notebook of scope, assumptions, validation criteria,
+claims, and captured evidence. It uses the existing harnesses and MCTS engine to
+choose investigations, then evaluates actual artifacts before proposing a scoped
+candidate answer. System One judgments remain explicitly heuristic.
+
+```bash
+mcts-agent research --query "Investigate an open question" --workspace . --mock --max-steps 2 --json
+# Resume with the checkpoint path returned by the command:
+mcts-agent research --resume .mcts-research/RUN_ID/checkpoint.json --max-steps 3 --json
+```
+
+Remove `--mock` for live work with configured providers. This mode is available
+through the CLI and Python API; see [Research mode](docs/research-mode.md) for
+validation adapters, evidence handling, budgets, and interruption behavior.
+
 The CLI provides a modern, Rich-stylized terminal experience with colored panels, search rollout progress, and step tables, along with full headless / machine-parseable support for AI agents.
 
 ### 1. Run Closed-Loop MCTS

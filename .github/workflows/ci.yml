@@ -43,3 +43,8 @@ jobs:
           USE_MOCK_PRIMITIVES: "true"
         run: |
           python main.py --mock --max-steps 1 --iterations 2
+
+      - name: Verify research CLI offline
+        run: |
+          mcts_research_workspace=$(mktemp -d)
+          mcts-agent research --query "Investigate a test question" --workspace "$mcts_research_workspace" --mock --max-steps 1 --json

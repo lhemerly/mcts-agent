@@ -117,6 +117,7 @@ def _deep_expand(
     *,
     explored_actions: Optional[list[str]] = None,
     config: AgentConfig | None = None,
+    state_evaluator: Callable[[str, str], float] | None = None,
 ) -> None:
     """
     Recursively expand `node` down to `remaining_depth` more levels.
@@ -135,7 +136,8 @@ def _deep_expand(
 
     if remaining_depth == 0:
         # Leaf: score and record
-        val = evaluate_state(goal, node.state, system_one_provider=config.system_one_provider if config else None)
+        val = (state_evaluator(goal, node.state) if state_evaluator else
+               evaluate_state(goal, node.state, system_one_provider=config.system_one_provider if config else None))
         node.visits = 1
         node.value_sum = val
         logger.emit_score(node, val)
@@ -147,11 +149,14 @@ def _deep_expand(
         explored_actions=explored_actions,
         config=config,
     )
+    if state_evaluator is not None:
+        candidates = candidates[:width]
     logger.emit_candidates(candidates)
 
     if not candidates:
         print("  [expand] Planner returned no actions; scoring the current path.")
-        val = evaluate_state(goal, node.state, system_one_provider=config.system_one_provider if config else None)
+        val = (state_evaluator(goal, node.state) if state_evaluator else
+               evaluate_state(goal, node.state, system_one_provider=config.system_one_provider if config else None))
         node.visits = 1
         node.value_sum = val
         logger.emit_score(node, val)
@@ -167,7 +172,7 @@ def _deep_expand(
 
     for action in candidates:
         child = Node(
-            state=f"{node.state}\n[Action taken]: {action}",
+            state=f"{node.state}\n[{'Proposed action' if state_evaluator else 'Action taken'}]: {action}",
             parent=node,
             action_taken=action,
             depth=node.depth + 1,
@@ -184,6 +189,7 @@ def _deep_expand(
             logger,
             explored_actions=explored_actions,
             config=config,
+            state_evaluator=state_evaluator,
         )
 
 
@@ -376,6 +382,7 @@ def run_mcts(
     config: AgentConfig | None = None,
     reuse_tree: bool = False,
     event_sink: Callable[[dict[str, Any]], None] | None = None,
+    state_evaluator: Callable[[str, str], float] | None = None,
 ) -> tuple[Node, str]:
     """
     Run MCTS from `root` to evaluate candidates and select the single best immediate action.
@@ -403,6 +410,10 @@ def run_mcts(
         Reused trees always skip these iterations because they add no new evidence.
     reuse_tree : bool
         Use an already rescored tree without proposing additional actions.
+    state_evaluator : callable | None
+        Optional domain value function (goal, hypothetical_state) -> 1..10.
+        Custom-scored trees aggregate their leaves before selection, allowing
+        iterations=0 without losing branch values. Completion remains separate.
     """
     cfg = config or load_config()
 
@@ -445,7 +456,15 @@ def run_mcts(
     else:
         print(f"[mcts] Phase A: deep expanding tree (width={width}, depth={depth})...")
         explored: list[str] = root.all_actions_flat()
-        _deep_expand(root, goal, width, depth, logger, explored_actions=explored, config=cfg)
+        _deep_expand(root, goal, width, depth, logger, explored_actions=explored, config=cfg,
+                     state_evaluator=state_evaluator)
+        if state_evaluator is not None:
+            _refresh_tree_statistics(root)
+            pending_nodes = [root]
+            while pending_nodes:
+                updated = pending_nodes.pop()
+                logger.emit_node_update(updated)
+                pending_nodes.extend(updated.children)
         print(f"[mcts] Phase A complete: {len(root.subtree_leaves())} leaf paths materialised.\n")
 
     if not root.children:
@@ -469,6 +488,7 @@ def run_mcts(
             _deep_expand(
                 leaf, goal, width, depth - leaf.depth, logger,
                 explored_actions=explored, config=cfg,
+                state_evaluator=state_evaluator,
             )
 
         # Backpropagate the leaf's current value
