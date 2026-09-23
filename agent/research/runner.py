@@ -11,7 +11,7 @@ from agent.mcts import run_mcts
 from agent.node import Node
 from agent.providers import get_executor_provider
 from agent.system_one import get_system_one_provider
-from .harness import HarnessResearchAdapter, MockResearchHarness, ResearchHarness
+from .harness import CodexResearchHarness, HarnessResearchAdapter, MockResearchHarness, ResearchHarness
 from .models import (PendingOperation, ResearchBrief, ResearchSettings, ResearchState,
                      ResearchStep, StepReport, ValidationResult)
 from .storage import (atomic_write, capture_evidence, confined_path, load_state,
@@ -191,8 +191,14 @@ def run_research(
             active_validators = validators if validators is not None else {
                 "system_one": MockValidator() if mock else SystemOneValidator(provider)
             }
-            active_harness = harness or (MockResearchHarness() if mock else
-                                        HarnessResearchAdapter(get_executor_provider(cfg)))
+            if harness is not None:
+                active_harness = harness
+            elif mock:
+                active_harness = MockResearchHarness()
+            else:
+                executor = get_executor_provider(cfg)
+                active_harness = (CodexResearchHarness(executor) if cfg.executor_provider == "codex"
+                                  else HarnessResearchAdapter(executor))
 
             def select(current: ResearchState) -> tuple[str | None, str | None]:
                 if mock:

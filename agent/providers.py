@@ -472,12 +472,47 @@ class PiExecutorProvider(BaseExecutorProvider):
             }
         except Exception as exc:
             print(f"[executor/pi] pi execution failed: {exc}")
-            return {
-                "success": False,
-                "stdout": "",
-                "stderr": str(exc),
-                "returncode": -1,
-            }
+            return {"success": False, "stdout": "", "stderr": str(exc), "returncode": -1}
+
+
+class CodexExecutorProvider(BaseExecutorProvider):
+    """Executor using the Codex CLI's structured ``codex exec`` interface.
+
+    Codex owns its model, tools, sandbox, and approvals. The connector supplies
+    the task and workspace boundary; it never disables Codex permissions.
+    """
+
+    def __init__(self, model: str = "", timeout: int = 1800, command: str = "codex"):
+        self.model = model
+        self.timeout = timeout
+        self.command = command
+
+    def execute_action(self, action: str, goal: str, workspace_dir: str) -> dict[str, Any]:
+        workspace = _safe_abspath(workspace_dir)
+        prompt = textwrap.dedent(f"""\
+            Goal:
+            {goal.strip()}
+
+            Bounded task:
+            {action.strip()}
+
+            Work only in the supplied workspace. Complete the task and report actual
+            observations, conclusions, artifacts, and workspace changes separately.
+            Do not claim an experiment or test ran unless it actually ran.
+        """)
+        cmd = [self.command, "exec", "--json", "--sandbox", "workspace-write", "--cd", workspace]
+        if self.model:
+            cmd += ["--model", self.model]
+        cmd.append(prompt)
+        try:
+            proc = subprocess.run(cmd, cwd=workspace, capture_output=True, text=True, timeout=self.timeout)
+            return {"success": proc.returncode == 0, "stdout": proc.stdout.strip(),
+                    "stderr": proc.stderr.strip(), "returncode": proc.returncode}
+        except subprocess.TimeoutExpired as exc:
+            return {"success": False, "stdout": (exc.stdout or ""), "stderr": "Codex execution timed out",
+                    "returncode": -1, "cancelled": True}
+        except Exception as exc:
+            return {"success": False, "stdout": "", "stderr": str(exc), "returncode": -1}
 
 
 class MockExecutorProvider(BaseExecutorProvider):
@@ -579,6 +614,10 @@ register_harness(
     "pi",
     planner_factory=lambda cfg: PiPlannerProvider(cfg.planner_model),
     executor_factory=lambda cfg: PiExecutorProvider(cfg.executor_model, cfg.executor_timeout),
+)
+register_harness(
+    "codex",
+    executor_factory=lambda cfg: CodexExecutorProvider(cfg.executor_model, cfg.executor_timeout),
 )
 register_harness(
     "mock",

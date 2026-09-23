@@ -13,6 +13,7 @@ from agent.config import AgentConfig
 from agent.mcts import run_mcts
 from agent.node import Node
 from agent.research import ResearchBrief, ResearchSettings, run_research
+from agent.research.harness import CodexResearchHarness
 from agent.research.models import (Criterion, Finding, PendingOperation, ResearchState,
                                    ValidationResult)
 from agent.research.storage import atomic_write, capture_evidence, load_state, save_state
@@ -133,6 +134,38 @@ class ResearchTests(unittest.TestCase):
                                      validators={"square": SquareValidator()}, selector=lambda s: ("never", None))
             self.assertEqual(result.status, "candidate_ready")
             self.assertEqual(harness.calls, 1)
+
+    def test_codex_result_separates_conclusion_from_observations_and_artifacts(self):
+        class FakeCodex:
+            command, model, timeout = "codex", "", 30
+
+        with tempfile.TemporaryDirectory() as tmp:
+            state = ResearchState(run_id="run", query="Check a claim", workspace=tmp,
+                                  brief=brief(), agent_config={})
+            output = Path(tmp) / ".mcts-research" / "run" / "operations" / "report.json"
+            output.parent.mkdir(parents=True)
+            response = {"agent_conclusion": "Candidate appears valid", "observations": [
+                {"type": "test_result", "artifact": "evidence/check.txt", "criterion_id": "square",
+                 "claim": "The recorded candidate squares to nine"}],
+                "artifacts": ["evidence/check.txt"], "open_questions": [], "answer": "3"}
+            Path(tmp, "evidence").mkdir()
+            Path(tmp, "evidence", "check.txt").write_text('{"candidate": 3}', encoding="utf-8")
+
+            def run(command, **kwargs):
+                if command[0] == "git":
+                    return Mock(returncode=128, stdout="", stderr="")
+                final = Path(command[command.index("-o") + 1])
+                final.write_text(json.dumps(response), encoding="utf-8")
+                return Mock(returncode=0, stdout='{"type":"thread.started","thread_id":"thread-1"}\n', stderr="")
+
+            with patch("agent.research.harness.subprocess.run", side_effect=run):
+                result = CodexResearchHarness(FakeCodex()).perform(state, "Run a check", output, "step")
+            self.assertEqual(result["agent_conclusion"], "Candidate appears valid")
+            self.assertEqual(result["observations"][0]["type"], "test_result")
+            self.assertEqual(state.agent_config["codex_thread_id"], "thread-1")
+            report = json.loads(output.read_text(encoding="utf-8"))
+            self.assertEqual(report["findings"][0]["evidence_paths"], ["evidence/check.txt"])
+            self.assertEqual(report["answer"], "3")
 
     def test_evidence_paths_and_snapshot_integrity(self):
         with tempfile.TemporaryDirectory() as tmp:

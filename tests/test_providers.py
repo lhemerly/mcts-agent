@@ -16,6 +16,7 @@ from agent.config import AgentConfig, load_config
 from agent.mcts import run_closed_loop_agent
 from agent.providers import (
     AGYExecutorProvider,
+    CodexExecutorProvider,
     AGYPlannerProvider,
     MockExecutorProvider,
     MockPlannerProvider,
@@ -95,6 +96,7 @@ executor = "agy"
         self.assertIsInstance(get_executor_provider(AgentConfig(executor_provider="mock")), MockExecutorProvider)
         self.assertIsInstance(get_executor_provider(AgentConfig(executor_provider="agy")), AGYExecutorProvider)
         self.assertIsInstance(get_executor_provider(AgentConfig(executor_provider="pi")), PiExecutorProvider)
+        self.assertIsInstance(get_executor_provider(AgentConfig(executor_provider="codex")), CodexExecutorProvider)
 
     def test_unknown_harness_is_rejected(self):
         with self.assertRaisesRegex(ValueError, "Unknown planner harness"):
