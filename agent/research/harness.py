@@ -70,10 +70,10 @@ class CodexResearchHarness:
             result = HarnessResearchAdapter(self.executor).perform(state, action, output, kind)
             thread_id = _thread_id(result.get("stdout", ""))
             if thread_id:
-                state.agent_config["codex_thread_id"] = thread_id
+                state.harness_state["codex_thread_id"] = thread_id
             result["task_id"] = f"{state.run_id}-brief"
             result["status"] = "completed" if result.get("success") else "failed"
-            result["thread_id"] = state.agent_config.get("codex_thread_id")
+            result["thread_id"] = state.harness_state.get("codex_thread_id")
             result["agent_conclusion"] = "Codex generated the structured research brief"
             result["observations"] = []
             result["artifacts"] = []
@@ -96,7 +96,7 @@ class CodexResearchHarness:
         }
         workspace = Path(state.workspace).resolve()
         task_id = f"{state.run_id}-step-{len(state.steps) + 1}"
-        thread_id = state.agent_config.get("codex_thread_id")
+        thread_id = state.harness_state.get("codex_thread_id")
         task = {
             "task_id": task_id, "goal": state.query, "action": action,
             "brief": state.brief.model_dump() if state.brief else None,
@@ -114,11 +114,11 @@ class CodexResearchHarness:
             schema_path = Path(temp) / "schema.json"
             final_path = Path(temp) / "result.json"
             schema_path.write_text(json.dumps(schema), encoding="utf-8")
-            cmd = [self.executor.command, "exec"]
+            cmd = [self.executor.command, "exec", "--json", "--sandbox", "workspace-write",
+                   "--cd", str(workspace), "--skip-git-repo-check"]
             if thread_id:
                 cmd += ["resume", str(thread_id)]
-            cmd += ["--json", "--sandbox", "workspace-write", "--cd", str(workspace),
-                    "--output-schema", str(schema_path), "-o", str(final_path)]
+            cmd += ["--output-schema", str(schema_path), "-o", str(final_path)]
             if self.executor.model:
                 cmd += ["--model", self.executor.model]
             cmd.append(prompt)
@@ -128,27 +128,35 @@ class CodexResearchHarness:
                                       timeout=self.executor.timeout)
                 session = _thread_id(proc.stdout)
                 if session:
-                    state.agent_config["codex_thread_id"] = session
+                    state.harness_state["codex_thread_id"] = session
                 result = json.loads(final_path.read_text(encoding="utf-8")) if final_path.exists() else {}
                 success = proc.returncode == 0 and bool(result)
                 observations = result.get("observations", [])
                 artifacts = _existing_artifacts(workspace, result.get("artifacts", []))
-                findings = []
+                grouped_findings: dict[str, dict[str, list[str]]] = {}
                 for observation in observations:
                     artifact = observation.get("artifact", "")
                     artifact = _workspace_relative_file(workspace, artifact) if artifact else ""
                     if artifact and artifact not in artifacts:
                         artifacts.append(artifact)
                     if observation.get("criterion_id") and observation.get("claim"):
-                        findings.append({"criterion_id": observation["criterion_id"],
-                            "claim": observation["claim"], "evidence_paths": [artifact] if artifact else []})
+                        criterion_id = observation["criterion_id"]
+                        finding = grouped_findings.setdefault(criterion_id, {"claims": [], "evidence_paths": []})
+                        if observation["claim"] not in finding["claims"]:
+                            finding["claims"].append(observation["claim"])
+                        if artifact and artifact not in finding["evidence_paths"]:
+                            finding["evidence_paths"].append(artifact)
+                findings = [{"criterion_id": criterion_id,
+                    "claim": "; ".join(data["claims"]),
+                    "evidence_paths": data["evidence_paths"]}
+                    for criterion_id, data in grouped_findings.items()]
                 atomic_write(output, json.dumps({"summary": result.get("agent_conclusion") or "Codex returned no conclusion",
                     "findings": findings, "open_questions": result.get("open_questions", []),
                     "answer": result.get("answer")}, ensure_ascii=False))
                 return {"success": success, "returncode": proc.returncode,
                     "status": "completed" if success else "failed",
                     "stdout": proc.stdout[-16000:], "stderr": proc.stderr[-8000:],
-                    "task_id": task_id, "thread_id": state.agent_config.get("codex_thread_id"),
+                    "task_id": task_id, "thread_id": state.harness_state.get("codex_thread_id"),
                     "agent_conclusion": result.get("agent_conclusion"), "observations": observations,
                     "artifacts": artifacts,
                     "workspace_changes": sorted(set(_workspace_changes(workspace)) - changes_before),

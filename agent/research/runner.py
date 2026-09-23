@@ -167,7 +167,10 @@ def run_research(
             if mock and not state.mock:
                 raise ValueError("Cannot resume a live run in mock mode")
             mock = state.mock
-            cfg = AgentConfig(**state.agent_config)
+            # Ignore legacy runtime metadata written into this mapping by early
+            # Codex connector checkpoints; current checkpoints store it separately.
+            config_data = {k: v for k, v in state.agent_config.items() if k != "codex_thread_id"}
+            cfg = AgentConfig(**config_data)
             limits = settings or ResearchSettings(**state.settings)
         else:
             cfg = config or load_config()
@@ -197,7 +200,7 @@ def run_research(
                 active_harness = MockResearchHarness()
             else:
                 executor = get_executor_provider(cfg)
-                active_harness = (CodexResearchHarness(executor) if cfg.executor_provider == "codex"
+                active_harness = (CodexResearchHarness(executor) if cfg.executor_provider.lower() == "codex"
                                   else HarnessResearchAdapter(executor))
 
             def select(current: ResearchState) -> tuple[str | None, str | None]:

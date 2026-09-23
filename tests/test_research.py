@@ -146,14 +146,19 @@ class ResearchTests(unittest.TestCase):
             output.parent.mkdir(parents=True)
             response = {"agent_conclusion": "Candidate appears valid", "observations": [
                 {"type": "test_result", "artifact": "evidence/check.txt", "criterion_id": "square",
-                 "claim": "The recorded candidate squares to nine"}],
+                 "claim": "The recorded candidate squares to nine"},
+                {"type": "source_check", "artifact": "evidence/source.txt", "criterion_id": "square",
+                 "claim": "The implementation checks the square correctly"}],
                 "artifacts": ["evidence/check.txt"], "open_questions": [], "answer": "3"}
             Path(tmp, "evidence").mkdir()
             Path(tmp, "evidence", "check.txt").write_text('{"candidate": 3}', encoding="utf-8")
+            Path(tmp, "evidence", "source.txt").write_text("assert candidate ** 2 == 9", encoding="utf-8")
 
+            commands = []
             def run(command, **kwargs):
                 if command[0] == "git":
                     return Mock(returncode=128, stdout="", stderr="")
+                commands.append(command)
                 final = Path(command[command.index("-o") + 1])
                 final.write_text(json.dumps(response), encoding="utf-8")
                 return Mock(returncode=0, stdout='{"type":"thread.started","thread_id":"thread-1"}\n', stderr="")
@@ -162,10 +167,43 @@ class ResearchTests(unittest.TestCase):
                 result = CodexResearchHarness(FakeCodex()).perform(state, "Run a check", output, "step")
             self.assertEqual(result["agent_conclusion"], "Candidate appears valid")
             self.assertEqual(result["observations"][0]["type"], "test_result")
-            self.assertEqual(state.agent_config["codex_thread_id"], "thread-1")
+            self.assertEqual(state.harness_state["codex_thread_id"], "thread-1")
+            self.assertNotIn("codex_thread_id", state.agent_config)
+            restored = ResearchState.model_validate_json(state.model_dump_json())
+            self.assertEqual(restored.harness_state["codex_thread_id"], "thread-1")
+            AgentConfig(**restored.agent_config)
             report = json.loads(output.read_text(encoding="utf-8"))
-            self.assertEqual(report["findings"][0]["evidence_paths"], ["evidence/check.txt"])
+            self.assertEqual(len(report["findings"]), 1)
+            self.assertCountEqual(report["findings"][0]["evidence_paths"],
+                                  ["evidence/check.txt", "evidence/source.txt"])
             self.assertEqual(report["answer"], "3")
+            self.assertIn("--skip-git-repo-check", commands[0])
+            self.assertLess(commands[0].index("--cd"), commands[0].index("--skip-git-repo-check"))
+
+            # A later turn resumes the saved session only after exec-level flags.
+            state.pending = None
+            with patch("agent.research.harness.subprocess.run", side_effect=run):
+                CodexResearchHarness(FakeCodex()).perform(state, "Continue", output, "step")
+            resume_command = commands[-1]
+            self.assertEqual(resume_command[1], "exec")
+            self.assertLess(resume_command.index("--sandbox"), resume_command.index("resume"))
+            self.assertIn("--skip-git-repo-check", resume_command)
+
+    def test_codex_adapter_selection_normalizes_provider_case(self):
+        class FakeCodex:
+            command, model, timeout = "codex", "", 30
+
+        with tempfile.TemporaryDirectory() as tmp, \
+                patch("agent.research.runner.get_executor_provider", return_value=FakeCodex()), \
+                patch("agent.research.runner.CodexResearchHarness") as codex_adapter, \
+                patch("agent.research.runner.HarnessResearchAdapter") as generic_adapter:
+            state, _ = run_research(
+                "query", workspace=tmp, brief=brief(), config=AgentConfig(executor_provider="Codex"),
+                validators={"square": SquareValidator()}, selector=lambda current: (None, None),
+            )
+        self.assertEqual(state.status, "blocked")
+        codex_adapter.assert_called_once()
+        generic_adapter.assert_not_called()
 
     def test_evidence_paths_and_snapshot_integrity(self):
         with tempfile.TemporaryDirectory() as tmp:

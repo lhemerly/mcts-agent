@@ -131,6 +131,7 @@ class ResearchState(Record):
     run_directory: str | None = None
     mock: bool = False
     agent_config: dict[str, Any] = Field(default_factory=dict)
+    harness_state: dict[str, Any] = Field(default_factory=dict)
     settings: dict[str, Any] = Field(default_factory=dict)
     brief: ResearchBrief | None = None
     evidence: list[Evidence] = Field(default_factory=list)

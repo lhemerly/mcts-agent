@@ -500,7 +500,8 @@ class CodexExecutorProvider(BaseExecutorProvider):
             observations, conclusions, artifacts, and workspace changes separately.
             Do not claim an experiment or test ran unless it actually ran.
         """)
-        cmd = [self.command, "exec", "--json", "--sandbox", "workspace-write", "--cd", workspace]
+        cmd = [self.command, "exec", "--json", "--sandbox", "workspace-write", "--cd", workspace,
+               "--skip-git-repo-check"]
         if self.model:
             cmd += ["--model", self.model]
         cmd.append(prompt)
