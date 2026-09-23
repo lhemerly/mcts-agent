@@ -16,6 +16,7 @@ from agent.config import AgentConfig, load_config
 from agent.mcts import run_closed_loop_agent
 from agent.providers import (
     AGYExecutorProvider,
+    CodexExecutorProvider,
     AGYPlannerProvider,
     MockExecutorProvider,
     MockPlannerProvider,
@@ -95,6 +96,7 @@ executor = "agy"
         self.assertIsInstance(get_executor_provider(AgentConfig(executor_provider="mock")), MockExecutorProvider)
         self.assertIsInstance(get_executor_provider(AgentConfig(executor_provider="agy")), AGYExecutorProvider)
         self.assertIsInstance(get_executor_provider(AgentConfig(executor_provider="pi")), PiExecutorProvider)
+        self.assertIsInstance(get_executor_provider(AgentConfig(executor_provider="codex")), CodexExecutorProvider)
 
     def test_unknown_harness_is_rejected(self):
         with self.assertRaisesRegex(ValueError, "Unknown planner harness"):
@@ -135,6 +137,17 @@ executor = "agy"
         self.assertTrue(result["success"])
         self.assertEqual(run.call_args.kwargs["cwd"], workspace)
         self.assertIn("Target Workspace Directory", run.call_args.args[0][-1])
+
+    def test_codex_executor_allows_directory_only_workspace(self):
+        with tempfile.TemporaryDirectory() as workspace, patch(
+            "agent.providers.subprocess.run",
+            return_value=MagicMock(returncode=0, stdout="{}", stderr=""),
+        ) as run:
+            result = CodexExecutorProvider().execute_action("Inspect", "Goal", workspace)
+        self.assertTrue(result["success"])
+        command = run.call_args.args[0]
+        self.assertIn("--skip-git-repo-check", command)
+        self.assertEqual(command[command.index("--cd") + 1], workspace)
 
     def test_mock_providers_remain_hermetic(self):
         config = AgentConfig(planner_provider="mock", executor_provider="mock")

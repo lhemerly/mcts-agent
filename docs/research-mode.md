@@ -41,6 +41,29 @@ mcts-agent research --query "Develop and test a numerical model under explicit a
   --system-one typesafe --width 2 --depth 2 --max-steps 5
 ```
 
+Codex CLI can be selected as the research executor:
+
+```bash
+mcts-agent research --query "Investigate a bounded question" \
+  --workspace ./research-workspace --executor codex --max-steps 5
+```
+
+Install and authenticate the Codex CLI separately. The connector invokes
+`codex exec` with `--json`, `--output-schema`, and Codex's `workspace-write`
+sandbox. It does not bypass the configured approval policy. Each step is a
+bounded structured task; the CLI timeout comes from `executor_timeout` (default
+30 minutes). A timed-out subprocess is terminated and recorded as cancelled.
+Codex's thread ID is saved in the run checkpoint and resumed for later steps.
+
+The structured Codex response preserves its `agent_conclusion` separately from
+actual `observations`, `artifacts`, and `workspace_changes` in each operation's
+`*.execution.json` record. Only observations that identify a criterion and an
+existing workspace artifact become findings in the research ledger. Those
+artifact paths are captured as immutable evidence snapshots and passed to the
+configured validator; Codex's conclusion by itself cannot support a criterion.
+Workspace change paths are currently reported for Git workspaces and represent
+the workspace's changed-path view at task completion.
+
 Provider keys and harness installation follow the existing setup. The process
 uses the configured executor's tools and permissions; Research mode adds no
 sandbox. Run it in a workspace and environment suitable for the intended work.
