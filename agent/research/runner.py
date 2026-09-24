@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Callable, Mapping
 from uuid import uuid4
 
+from agent.execution import ExecutionTraceRef, verify_execution_trace
 from agent.config import AgentConfig, load_config
 from agent.mcts import run_mcts
 from agent.node import Node
@@ -88,6 +89,8 @@ def _consume_pending(state: ResearchState, run_dir: Path,
         state.error = "Interrupted harness call has unknown effects; reconcile it before restarting. It will not be replayed."
         save_state(run_dir, state)
         return False
+    if pending.execution_trace is not None:
+        verify_execution_trace(pending.execution_trace, run_dir)
     path = confined_path(run_dir, pending.report_path)
     if pending.kind == "brief":
         if not pending.execution_success:
@@ -102,6 +105,7 @@ def _consume_pending(state: ResearchState, run_dir: Path,
         state.steps.append(ResearchStep(
             number=len(state.steps) + 1, action=pending.action, search_log=pending.search_log,
             execution_success=pending.execution_success, report=report, validations=validations,
+            execution_trace=pending.execution_trace,
         ))
         if pending.execution_success and report.answer and report.answer.strip():
             state.answer = report.answer
@@ -127,6 +131,9 @@ def _perform(state: ResearchState, run_dir: Path, harness: ResearchHarness,
     result = harness.perform(state, action, output, kind)
     ensure_run_contained(Path(state.workspace), run_dir)
     atomic_write(output.with_suffix(".execution.json"), json.dumps(result, default=str, indent=2))
+    if result.get("execution_trace") is not None:
+        state.pending.execution_trace = ExecutionTraceRef.model_validate(result["execution_trace"])
+        verify_execution_trace(state.pending.execution_trace, run_dir)
     state.pending.execution_success = (
         result.get("success") is True and result.get("returncode", 0) == 0 and not result.get("skipped", False)
     )
@@ -242,3 +249,4 @@ def run_research(
             state.status, state.error = "failed", str(exc)
         save_state(run_dir, state)
         return state, run_dir
+

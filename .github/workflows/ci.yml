@@ -36,7 +36,7 @@ jobs:
         env:
           USE_MOCK_PRIMITIVES: "true"
         run: |
-          python -m unittest discover tests -v
+          python -m pytest tests -v
 
       - name: Verify CLI Mock Run
         env:
@@ -48,3 +48,4 @@ jobs:
         run: |
           mcts_research_workspace=$(mktemp -d)
           mcts-agent research --query "Investigate a test question" --workspace "$mcts_research_workspace" --mock --max-steps 1 --json
+

@@ -209,3 +209,88 @@ Tests cover falsification and recovery, answer/criterion alignment, unsupported
 claims, failed execution, contradictory System One judgments, evidence capture
 and reuse, snapshot integrity, schema enforcement, MCTS scoring integration,
 safe resume, and offline CLI behavior.
+
+
+## Execution provenance
+
+Codex research operations capture the **exact bytes** from `codex exec --json`
+stdout after the process exits, before interpreting its authored answer. Each
+attempt gets a fresh, write-once directory:
+
+```text
+.mcts-research/RUN_ID/executions/TASK_ID/TRACE_ID/codex.jsonl
+.mcts-research/RUN_ID/executions/TASK_ID/TRACE_ID/trace.json
+```
+
+`codex.jsonl` is authoritative. `trace.json` binds the harness/task/workspace
+metadata to typed events. Both files are hashed, created exclusively, flushed to
+disk, and made read-only. A `ResearchStep.execution_trace` holds only an
+`ExecutionTraceRef` (IDs, relative path, raw SHA-256, manifest SHA-256). The pending
+operation holds the same reference before report validation, so a checkpointed
+execution resumes without rerunning Codex. Loading either completed or pending
+work verifies its trace. Older checkpoints and other harnesses default to `None`.
+Brief traces are also captured and referenced in their operation execution record.
+
+Downstream consumers use the public API; they do not parse Codex JSONL:
+
+```python
+from agent.execution import verify_execution_trace
+
+if step.execution_trace is not None:
+    trace = verify_execution_trace(step.execution_trace, run_dir)
+    for event in trace.events:
+        print(trace.task_id, event.provider_item_id, event.command, event.exit_code)
+```
+
+Verification confines paths to the supplied run directory, rejects symlink paths,
+authenticates raw and manifest bytes, reparses the raw stream, and compares the
+result with the saved manifest. It raises `ValueError` or `OSError` on failure.
+`ExecutionTrace.events` is an immutable tuple of frozen `ExecutionEvent` records.
+`sequence` is the zero-based physical line number; `raw_sha256` hashes that line's
+exact bytes **including its terminator**, when present. `workspace` is the
+harness launch directory, not an assertion about the shell's eventual cwd.
+
+Only `item.completed` items of type `command_execution` create events. Started
+and updated items do not establish completion. Repeated commands with different
+provider item IDs remain separate events. Duplicate completion IDs, conflicting
+item identities, duplicate JSON keys, invalid types, invalid UTF-8, and truncated
+JSON fail closed: no partial events are returned. Unknown event/item types remain
+in the raw trace and produce no command receipts. Absent or null `exit_code`
+remains `None`; process success and authored conclusions never fill it in.
+
+Nonzero process exits and timeouts can retain completed command events. A timeout
+with a truncated last event retains the raw file for diagnosis but yields no
+verified reference. Malformed streams likewise remain on disk without a manifest.
+A process interruption before the harness checkpoints the result still has unknown
+effects and is never replayed automatically; existing reconciliation rules apply.
+
+### Trust and compatibility
+
+The outer harness creates provenance; Codex-authored JSON, artifact contents,
+agent messages, and command output cannot supply execution events. A recorded
+command/exit code describes execution, not whether a scientific claim is true.
+Downstream validation still decides what a command establishes.
+
+Codex research now requires a CLI supporting `--strict-config` and named
+permissions profiles. The harness selects an explicit profile that permits
+workspace edits, makes `.mcts-research` read-only, disables command network access,
+and sets `approval_policy="never"`. It applies the same policy on resumed threads
+and generates briefs through structured final output instead of allowing Codex
+to write control files. Unsupported versions fail without an insecure fallback.
+This protection relies on Codex's sandbox enforcement and trusted local
+configuration/tools; external MCP services or other processes with independent
+filesystem access must not be granted writes to the control directory.
+
+Hashes are integrity checks relative to the trusted checkpoint, **not digital
+signatures**. They cannot defend against an actor replacing both checkpoint
+references and artifacts. Read-only file modes alone are not a security boundary
+against the owning OS user. For hostile hosts or independent external writers,
+protect the checkpoint and run directory using separate OS identities or a
+read-only mount. The offline test suite checks parser, storage, recovery, and CLI
+policy construction; it does not substitute for a platform-specific live sandbox
+test.
+
+Schema and configuration references:
+[Codex non-interactive events](https://learn.chatgpt.com/docs/non-interactive-mode),
+[filesystem permissions](https://learn.chatgpt.com/docs/permissions), and
+[CLI configuration flags](https://learn.chatgpt.com/docs/cli/reference).

@@ -161,7 +161,7 @@ class ResearchTests(unittest.TestCase):
                 commands.append(command)
                 final = Path(command[command.index("-o") + 1])
                 final.write_text(json.dumps(response), encoding="utf-8")
-                return Mock(returncode=0, stdout='{"type":"thread.started","thread_id":"thread-1"}\n', stderr="")
+                return Mock(returncode=0, stdout=b'{"type":"thread.started","thread_id":"thread-1"}\n', stderr=b"")
 
             with patch("agent.research.harness.subprocess.run", side_effect=run):
                 result = CodexResearchHarness(FakeCodex()).perform(state, "Run a check", output, "step")
@@ -186,7 +186,7 @@ class ResearchTests(unittest.TestCase):
                 CodexResearchHarness(FakeCodex()).perform(state, "Continue", output, "step")
             resume_command = commands[-1]
             self.assertEqual(resume_command[1], "exec")
-            self.assertLess(resume_command.index("--sandbox"), resume_command.index("resume"))
+            self.assertLess(resume_command.index("--strict-config"), resume_command.index("resume"))
             self.assertIn("--skip-git-repo-check", resume_command)
 
     def test_codex_adapter_selection_normalizes_provider_case(self):
@@ -413,3 +413,4 @@ class ResearchTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
