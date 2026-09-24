@@ -192,7 +192,7 @@ class CodexResearchHarness:
                     trace_error = str(trace_exc)
                 atomic_write(output, json.dumps({"summary": "Codex execution timed out", "findings": [],
                                                 "open_questions": ["Execution was cancelled at its time budget"], "answer": None}))
-                return {"success": False, "status": "cancelled", "returncode": -1, "stdout": str(exc.stdout or ""),
+                return {"success": False, "status": "cancelled", "returncode": -1, "stdout": _decode_tail(exc.stdout or b"", 16000),
                         "stderr": "Codex execution timed out", "task_id": task_id, "cancelled": True,
                         "execution_trace": trace_ref.model_dump() if trace_ref else None,
                         "trace_error": trace_error}
@@ -212,6 +212,13 @@ def _workspace_changes(workspace: Path) -> list[str]:
         return [line[3:] for line in result.stdout.splitlines() if len(line) > 3] if result.returncode == 0 else []
     except (OSError, subprocess.SubprocessError):
         return []
+
+
+def _decode_tail(value: bytes | str, limit: int) -> str:
+    """Bound diagnostic output while keeping the raw trace as the full record."""
+    if isinstance(value, str):
+        return value[-limit:]
+    return value[-limit:].decode("utf-8", errors="replace")
 
 
 def _strict_schema(value):

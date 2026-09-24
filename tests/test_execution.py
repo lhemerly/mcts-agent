@@ -241,7 +241,7 @@ def test_failed_process_and_invalid_answer_keep_trace(tmp_path):
     assert len(verify_execution_trace(state.steps[0].execution_trace, directory).events) == 1
 
 
-@pytest.mark.parametrize("raw,has_trace", [(RAW, True), (RAW + b"{", False)])
+@pytest.mark.parametrize("raw,has_trace", [(RAW, True), (RAW + b"{", False), (b"x" * 100000, False)])
 def test_timeout_preserves_raw_without_inventing_partial_receipts(tmp_path, raw, has_trace):
     def run(cmd, **kwargs):
         if cmd[0] == "git":
@@ -252,6 +252,8 @@ def test_timeout_preserves_raw_without_inventing_partial_receipts(tmp_path, raw,
     assert not state.steps[0].execution_success
     assert (state.steps[0].execution_trace is not None) == has_trace
     assert next(directory.glob("executions/*/*/codex.jsonl")).read_bytes() == raw
+    execution = json.loads(next(directory.glob("operations/*.execution.json")).read_text())
+    assert len(execution["stdout"]) <= 16000
 
 
 def test_brief_is_written_by_outer_harness_and_trace_captured(tmp_path):
