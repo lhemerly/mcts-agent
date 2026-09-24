@@ -6,9 +6,10 @@ import tempfile
 from pathlib import Path
 from typing import Protocol
 
+from agent.execution import capture_codex_trace, verify_execution_trace
 from agent.providers import BaseExecutorProvider
 from .models import ResearchBrief, ResearchState, StepReport
-from .storage import atomic_write
+from .storage import atomic_write, ensure_run_contained
 
 
 class ResearchHarness(Protocol):
@@ -66,20 +67,6 @@ class CodexResearchHarness:
         self.executor = executor
 
     def perform(self, state: ResearchState, action: str, output: Path, kind: str) -> dict:
-        if kind == "brief":
-            result = HarnessResearchAdapter(self.executor).perform(state, action, output, kind)
-            thread_id = _thread_id(result.get("stdout", ""))
-            if thread_id:
-                state.harness_state["codex_thread_id"] = thread_id
-            result["task_id"] = f"{state.run_id}-brief"
-            result["status"] = "completed" if result.get("success") else "failed"
-            result["thread_id"] = state.harness_state.get("codex_thread_id")
-            result["agent_conclusion"] = "Codex generated the structured research brief"
-            result["observations"] = []
-            result["artifacts"] = []
-            result["workspace_changes"] = []
-            return result
-
         schema = {
             "type": "object", "additionalProperties": False,
             "required": ["agent_conclusion", "observations", "artifacts", "open_questions", "answer"],
@@ -94,8 +81,13 @@ class CodexResearchHarness:
                 "answer": {"type": ["string", "null"]},
             },
         }
+        if kind == "brief":
+            schema = _strict_schema(ResearchBrief.model_json_schema())
         workspace = Path(state.workspace).resolve()
-        task_id = f"{state.run_id}-step-{len(state.steps) + 1}"
+        run_dir = output.parent.parent
+        ensure_run_contained(workspace, run_dir)
+        task_id = (f"{state.run_id}-brief" if kind == "brief"
+                   else f"{state.run_id}-step-{len(state.steps) + 1}")
         thread_id = state.harness_state.get("codex_thread_id")
         task = {
             "task_id": task_id, "goal": state.query, "action": action,
@@ -110,11 +102,24 @@ class CodexResearchHarness:
             "treat your conclusion as evidence. Do not edit .mcts-research.\n\n"
             + json.dumps(task, ensure_ascii=False)
         )
+        if kind == "brief":
+            prompt = (
+                "Return a bounded research brief, not a solution. Identify assumptions, questions, "
+                "and falsifiable criteria with unique IDs. Use validator='system_one' and "
+                "required=true for every criterion. Do not edit .mcts-research.\n" + json.dumps(task)
+            )
         with tempfile.TemporaryDirectory(prefix="mcts-codex-") as temp:
             schema_path = Path(temp) / "schema.json"
             final_path = Path(temp) / "result.json"
             schema_path.write_text(json.dumps(schema), encoding="utf-8")
-            cmd = [self.executor.command, "exec", "--json", "--sandbox", "workspace-write",
+            # Require profile-aware Codex; older CLIs must fail, not silently
+            # ignore the read-only control-directory rule. No escalation.
+            cmd = [self.executor.command, "exec", "--json", "--strict-config",
+                   "-c", 'approval_policy="never"',
+                   "-c", 'default_permissions="mcts-research"',
+                   "-c", 'permissions.mcts-research={filesystem={":minimal"="read", '
+                         '":workspace_roots"={"."="write", ".mcts-research"="read"}}, '
+                         'network={enabled=false}}',
                    "--cd", str(workspace), "--skip-git-repo-check"]
             if thread_id:
                 cmd += ["resume", str(thread_id)]
@@ -123,14 +128,26 @@ class CodexResearchHarness:
                 cmd += ["--model", self.executor.model]
             cmd.append(prompt)
             changes_before = set(_workspace_changes(workspace))
+            trace_ref = None
             try:
-                proc = subprocess.run(cmd, cwd=workspace, capture_output=True, text=True,
+                proc = subprocess.run(cmd, cwd=workspace, capture_output=True, text=False,
                                       timeout=self.executor.timeout)
-                session = _thread_id(proc.stdout)
+                # Capture exact stdout bytes before reading any authored result.
+                ensure_run_contained(workspace, run_dir)
+                trace_ref = capture_codex_trace(proc.stdout, run_dir, task_id=task_id,
+                                                workspace=str(workspace))
+                trace = verify_execution_trace(trace_ref, run_dir)
+                session = trace.thread_id
                 if session:
                     state.harness_state["codex_thread_id"] = session
                 result = json.loads(final_path.read_text(encoding="utf-8")) if final_path.exists() else {}
                 success = proc.returncode == 0 and bool(result)
+                if kind == "brief":
+                    brief = ResearchBrief.model_validate(result)
+                    atomic_write(output, brief.model_dump_json())
+                    return {"success": success, "returncode": proc.returncode,
+                            "task_id": task_id, "thread_id": session,
+                            "execution_trace": trace_ref.model_dump()}
                 observations = result.get("observations", [])
                 artifacts = _existing_artifacts(workspace, result.get("artifacts", []))
                 grouped_findings: dict[str, dict[str, list[str]]] = {}
@@ -155,17 +172,36 @@ class CodexResearchHarness:
                     "answer": result.get("answer")}, ensure_ascii=False))
                 return {"success": success, "returncode": proc.returncode,
                     "status": "completed" if success else "failed",
-                    "stdout": proc.stdout[-16000:], "stderr": proc.stderr[-8000:],
+                    "stdout": proc.stdout[-16000:].decode("utf-8", errors="replace"),
+                    "stderr": proc.stderr[-8000:].decode("utf-8", errors="replace"),
+                    "execution_trace": trace_ref.model_dump(),
                     "task_id": task_id, "thread_id": state.harness_state.get("codex_thread_id"),
                     "agent_conclusion": result.get("agent_conclusion"), "observations": observations,
                     "artifacts": artifacts,
                     "workspace_changes": sorted(set(_workspace_changes(workspace)) - changes_before),
                     "cancelled": False}
             except subprocess.TimeoutExpired as exc:
+                # A timeout may contain complete command events, or a truncated
+                # last line. Preserve either, but never invent partial receipts.
+                trace_error = None
+                try:
+                    ensure_run_contained(workspace, run_dir)
+                    trace_ref = capture_codex_trace(exc.stdout or b"", run_dir,
+                        task_id=task_id, workspace=str(workspace))
+                except ValueError as trace_exc:
+                    trace_error = str(trace_exc)
                 atomic_write(output, json.dumps({"summary": "Codex execution timed out", "findings": [],
                                                 "open_questions": ["Execution was cancelled at its time budget"], "answer": None}))
                 return {"success": False, "status": "cancelled", "returncode": -1, "stdout": str(exc.stdout or ""),
-                        "stderr": "Codex execution timed out", "task_id": task_id, "cancelled": True}
+                        "stderr": "Codex execution timed out", "task_id": task_id, "cancelled": True,
+                        "execution_trace": trace_ref.model_dump() if trace_ref else None,
+                        "trace_error": trace_error}
+            except (ValueError, TypeError, AttributeError) as exc:
+                atomic_write(output, json.dumps({"summary": f"Invalid Codex execution: {exc}",
+                    "findings": [], "open_questions": ["Execution requires inspection"], "answer": None}))
+                return {"success": False, "status": "failed", "returncode": -1,
+                        "task_id": task_id, "stderr": str(exc),
+                        "execution_trace": trace_ref.model_dump() if trace_ref else None}
 
 
 def _workspace_changes(workspace: Path) -> list[str]:
@@ -178,15 +214,16 @@ def _workspace_changes(workspace: Path) -> list[str]:
         return []
 
 
-def _thread_id(stdout: str) -> str | None:
-    for line in stdout.splitlines():
-        try:
-            event = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        if event.get("type") == "thread.started" and event.get("thread_id"):
-            return str(event["thread_id"])
-    return None
+def _strict_schema(value):
+    """Codex structured output requires every object property to be required."""
+    if isinstance(value, dict):
+        value = {key: _strict_schema(child) for key, child in value.items()}
+        if value.get("type") == "object":
+            value["additionalProperties"] = False
+            value["required"] = list(value.get("properties", {}))
+    elif isinstance(value, list):
+        value = [_strict_schema(child) for child in value]
+    return value
 
 
 def _workspace_relative_file(workspace: Path, value: str) -> str:
@@ -229,3 +266,4 @@ class MockResearchHarness:
             }
         atomic_write(output, json.dumps(payload))
         return {"success": True, "returncode": 0, "stdout": "Mock report written", "stderr": ""}
+

@@ -7,6 +7,8 @@ import tempfile
 from contextlib import contextmanager
 from pathlib import Path
 
+from agent.execution import verify_execution_trace
+
 from .models import Evidence, ResearchState
 
 
@@ -83,6 +85,9 @@ def load_state(run_dir: Path) -> ResearchState:
     for evidence in state.evidence:
         snapshot = confined_path(run_dir, evidence.snapshot_path)
         verify_evidence(evidence, run_dir)
+    for operation in [*state.steps, *([state.pending] if state.pending else [])]:
+        if operation.execution_trace is not None:
+            verify_execution_trace(operation.execution_trace, run_dir)
     return state
 
 
@@ -170,3 +175,4 @@ def read_object(path: Path) -> dict:
     if len(content) > 1_048_576:
         raise ValueError("Structured harness report exceeds 1 MiB")
     return json.loads(content)
+

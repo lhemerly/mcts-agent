@@ -3,6 +3,8 @@
 import json
 from typing import Any, Literal
 
+from agent.execution import ExecutionTraceRef
+
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
@@ -110,6 +112,7 @@ class ResearchStep(Record):
     action: str
     search_log: str | None = None
     execution_success: bool
+    execution_trace: ExecutionTraceRef | None = None
     report: StepReport
     validations: list[ValidationResult] = Field(default_factory=list)
 
@@ -121,6 +124,7 @@ class PendingOperation(Record):
     search_log: str | None = None
     # Written only after a harness call returns. Unknown means never replay it.
     execution_success: bool | None = None
+    execution_trace: ExecutionTraceRef | None = None
 
 
 class ResearchState(Record):
@@ -223,3 +227,4 @@ class ResearchSettings(Record):
         if sum(self.width ** d for d in range(1, self.depth + 1)) > self.max_nodes:
             raise ValueError("Research tree exceeds max_nodes; reduce width or depth")
         return self
+
