@@ -129,6 +129,8 @@ class PendingOperation(Record):
 
 class ResearchState(Record):
     schema_version: Literal[1] = 1
+    mcts_agent_version: str | None = None
+    git_commit: str | None = None
     run_id: str
     query: str = Field(min_length=1, max_length=32000)
     workspace: str
@@ -227,4 +229,3 @@ class ResearchSettings(Record):
         if sum(self.width ** d for d in range(1, self.depth + 1)) > self.max_nodes:
             raise ValueError("Research tree exceeds max_nodes; reduce width or depth")
         return self
-

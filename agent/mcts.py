@@ -47,6 +47,7 @@ from agent.primitives import (
     get_action_priors,
     select_action_count,
 )
+from agent.updates import installed_version, source_commit
 from agent.providers import get_executor_provider, get_planner_provider
 
 
@@ -971,6 +972,9 @@ def run_closed_loop_agent(
             print("  [ASSESS] Skipped: the chosen action was not verified.\n")
 
     summary = {
+        "schema_version": 1,
+        "mcts_agent_version": installed_version(),
+        "git_commit": source_commit(),
         "run_id": run_id,
         "goal": goal,
         "initial_state": initial_state,

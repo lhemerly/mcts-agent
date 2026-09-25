@@ -27,6 +27,7 @@ class TestCLI(unittest.TestCase):
     def setUp(self):
         os.environ["USE_MOCK_PRIMITIVES"] = "true"
         os.environ["NO_COLOR"] = "1"
+        os.environ["MCTS_AGENT_DISABLE_UPDATE_CHECK"] = "1"
 
     def test_app_exposed_in_main(self):
         self.assertIs(app, main_app)

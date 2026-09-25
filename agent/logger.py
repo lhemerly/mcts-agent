@@ -27,6 +27,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
 
+from agent.updates import installed_version, source_commit
+
 
 class MCTSLogger:
     def __init__(
@@ -42,6 +44,9 @@ class MCTSLogger:
         self._events: list[dict[str, Any]] = []
         self._event_sink = event_sink
         self._meta: dict[str, Any] = {
+            "schema_version": 1,
+            "mcts_agent_version": installed_version(),
+            "git_commit": source_commit(),
             "goal": goal,
             "initial_state": initial_state,
             "iterations": iterations,

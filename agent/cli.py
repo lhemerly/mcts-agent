@@ -16,6 +16,7 @@ AI-Friendly & Headless Features:
 from __future__ import annotations
 
 import contextlib
+from http.client import HTTPException
 from http.cookies import SimpleCookie
 import http.server
 import ipaddress
@@ -58,6 +59,7 @@ from agent.mcts import (
 )
 from agent.node import Node
 from agent.primitives import check_task_completion
+from agent import updates
 
 _DEMO_GOAL = (
     "Design a minimal REST API in Python (FastAPI) for a task management app: "
@@ -220,11 +222,77 @@ def main_callback(
         "--no-color",
         help="Disable ANSI color output.",
     ),
+    no_update_check: bool = typer.Option(
+        False,
+        "--no-update-check",
+        envvar="MCTS_AGENT_DISABLE_UPDATE_CHECK",
+        help="Skip the once-daily PyPI update check.",
+    ),
 ):
     ctx.ensure_object(dict)
     ctx.obj["json"] = json_output
     ctx.obj["quiet"] = quiet
     ctx.obj["no_color"] = no_color
+    ctx.obj["no_update_check"] = no_update_check
+
+    if no_update_check or ctx.invoked_subcommand in {None, "version", "update"}:
+        return
+    latest = updates.check_latest_quietly()
+    if latest and updates.update_available(updates.installed_version(), latest):
+        sys.stderr.write(
+            f"mcts-agent {latest} available (installed {updates.installed_version()}). "
+            "Run `mcts-agent update` to upgrade.\n"
+        )
+
+
+@app.command("version")
+def show_version() -> None:
+    """Show the installed version and the latest version on PyPI."""
+    current = updates.installed_version()
+    typer.echo(f"mcts-agent {current}")
+    try:
+        latest = updates.latest_version(force=True)
+    except (OSError, HTTPException, updates.UpdateCheckUnavailable, ValueError, TypeError, KeyError) as exc:
+        typer.echo(f"Latest: unavailable ({exc})")
+        return
+    typer.echo(f"Latest: {latest}")
+    if updates.update_available(current, latest):
+        typer.echo("Update available.\n\nRun:\n    mcts-agent update")
+    elif updates.update_available(latest, current):
+        typer.echo("Installed version is newer than the latest PyPI release.")
+    else:
+        typer.echo("Up to date.")
+
+
+@app.command("update")
+def update_package() -> None:
+    """Explicitly upgrade mcts-agent from PyPI."""
+    current = updates.installed_version()
+    typer.echo(f"Current version: {current}")
+    try:
+        latest = updates.latest_version(force=True)
+    except (OSError, HTTPException, updates.UpdateCheckUnavailable, ValueError, TypeError, KeyError) as exc:
+        typer.echo(f"Unable to check PyPI: {exc}", err=True)
+        raise typer.Exit(code=1)
+    typer.echo(f"Latest version:  {latest}")
+    if not updates.update_available(current, latest):
+        typer.echo("Already up to date.")
+        return
+
+    typer.echo(f"\nDownloading mcts-agent {latest}...")
+    try:
+        result = updates.perform_update(latest)
+    except OSError as exc:
+        typer.echo(f"Unable to run the package installer: {exc}", err=True)
+        raise typer.Exit(code=1)
+    if result.returncode != 0:
+        typer.echo("Update failed. See installer output above.", err=True)
+        raise typer.Exit(code=result.returncode)
+    typer.echo("✓ Updated successfully")
+    notes = updates.release_notes(latest)
+    if notes:
+        typer.echo("\nRelease notes:")
+        typer.echo(notes)
 
 
 @app.command()
