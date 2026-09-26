@@ -8,6 +8,7 @@ import unittest
 from contextlib import redirect_stderr
 from pathlib import Path
 from types import SimpleNamespace
+from urllib.error import HTTPError
 from unittest.mock import patch
 
 from typer.testing import CliRunner
@@ -41,7 +42,7 @@ class TestUpdates(unittest.TestCase):
             updates._write_cache(cache, "0.8.0", now)
             contents = json.loads(cache.read_text(encoding="utf-8"))
             self.assertTrue(contents["checked_at"].endswith("Z"))
-            self.assertEqual(updates._read_cache(cache, now + 60), (True, "0.8.0"))
+            self.assertEqual(updates._read_cache(cache, now + 60), ("available", "0.8.0"))
             self.assertIsNone(
                 updates._read_cache(cache, now + updates.CHECK_INTERVAL_SECONDS + 1)
             )
@@ -54,6 +55,36 @@ class TestUpdates(unittest.TestCase):
                 updates, "_fetch_json", side_effect=AssertionError("network called")
             ):
                 self.assertEqual(updates.latest_version(), "0.9.0")
+
+    def test_missing_pypi_project_is_reported_as_not_published(self):
+        with tempfile.TemporaryDirectory() as directory:
+            cache = Path(directory) / "update-check.json"
+            missing = HTTPError(updates.PYPI_JSON_URL, 404, "Not Found", None, None)
+            with patch.object(updates, "_cache_path", return_value=cache), patch.object(
+                updates, "_fetch_json", side_effect=missing
+            ) as fetch:
+                for force in (True, False):
+                    with self.assertRaisesRegex(
+                        updates.PackageNotPublishedError, "not published on PyPI yet"
+                    ):
+                        updates.latest_version(force=force)
+                self.assertEqual(updates._read_cache(cache, time.time()), ("unpublished", None))
+                with self.assertRaises(updates.PackageNotPublishedError):
+                    updates.latest_version(force=True)
+            self.assertEqual(fetch.call_count, 2)
+
+    def test_update_command_explains_package_is_not_published(self):
+        runner = CliRunner()
+        with patch.object(updates, "installed_version", return_value="0.1.dev59"), patch.object(
+            updates,
+            "latest_version",
+            side_effect=updates.PackageNotPublishedError(
+                "mcts-agent is not published on PyPI yet; publish a release before using update"
+            ),
+        ):
+            result = runner.invoke(app, ["--no-update-check", "update"])
+        self.assertEqual(result.exit_code, 1)
+        self.assertIn("not published on PyPI yet", result.stderr)
 
     def test_failed_check_is_cached_for_a_day(self):
         with tempfile.TemporaryDirectory() as directory:
