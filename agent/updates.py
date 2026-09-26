@@ -26,6 +26,10 @@ class UpdateCheckUnavailable(RuntimeError):
     """The most recent version lookup failed or returned invalid data."""
 
 
+class PackageNotPublishedError(UpdateCheckUnavailable):
+    """The package is not available on PyPI yet."""
+
+
 def installed_version() -> str:
     try:
         return version(PACKAGE_NAME)
@@ -133,7 +137,14 @@ def latest_version(*, force: bool = False) -> str:
         latest = info.get("version") if isinstance(info, dict) else None
         if not isinstance(latest, str) or not latest:
             raise ValueError("PyPI response did not contain a package version")
-    except (HTTPError, URLError, TimeoutError, OSError, HTTPException, ValueError, TypeError) as exc:
+    except HTTPError as exc:
+        if exc.code == 404:
+            raise PackageNotPublishedError(
+                "mcts-agent is not published on PyPI yet; publish a release before using update"
+            ) from exc
+        _write_cache(cache, None, now)
+        raise UpdateCheckUnavailable(f"PyPI request failed with HTTP {exc.code}") from exc
+    except (URLError, TimeoutError, OSError, HTTPException, ValueError, TypeError) as exc:
         _write_cache(cache, None, now)
         raise UpdateCheckUnavailable("PyPI could not be reached") from exc
     _write_cache(cache, latest, now)
