@@ -6,8 +6,8 @@ import tempfile
 import time
 import unittest
 from contextlib import redirect_stderr
-from urllib.error import HTTPError
 from pathlib import Path
+from urllib.error import HTTPError
 from types import SimpleNamespace
 from unittest.mock import patch
 
