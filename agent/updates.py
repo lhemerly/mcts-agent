@@ -79,7 +79,7 @@ def _fetch_json(url: str) -> dict[str, Any]:
     return result
 
 
-def _read_cache(path: Path, now: float) -> tuple[bool, str | None] | None:
+def _read_cache(path: Path, now: float) -> tuple[str, str | None] | None:
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
         checked_value = payload["checked_at"]
@@ -90,15 +90,25 @@ def _read_cache(path: Path, now: float) -> tuple[bool, str | None] | None:
         else:
             checked_at = float(checked_value)
         latest = payload["latest"]
+        status = payload.get("status")
+        if status is None:
+            # Read cache entries written by previous versions.
+            status = "unavailable" if latest is None else "available"
         age = now - checked_at
-        if (latest is None or isinstance(latest, str)) and 0 <= age < CHECK_INTERVAL_SECONDS:
-            return True, latest
+        if (
+            status in {"available", "unavailable", "unpublished"}
+            and (latest is None or isinstance(latest, str))
+            and 0 <= age < CHECK_INTERVAL_SECONDS
+        ):
+            return status, latest
     except (OSError, ValueError, TypeError, KeyError):
         pass
     return None
 
 
-def _write_cache(path: Path, latest: str | None, now: float) -> None:
+def _write_cache(
+    path: Path, latest: str | None, now: float, *, status: str | None = None
+) -> None:
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
         temporary = path.with_suffix(".tmp")
@@ -109,6 +119,7 @@ def _write_cache(path: Path, latest: str | None, now: float) -> None:
                     .isoformat()
                     .replace("+00:00", "Z"),
                     "latest": latest,
+                    "status": status or ("available" if latest is not None else "unavailable"),
                 },
                 indent=2,
             )
@@ -128,9 +139,15 @@ def latest_version(*, force: bool = False) -> str:
     if not force:
         cached = _read_cache(cache, now)
         if cached:
-            if cached[1] is None:
+            status, cached_latest = cached
+            if status == "unpublished":
+                raise PackageNotPublishedError(
+                    "mcts-agent is not published on PyPI yet; publish a release before using update"
+                )
+            if status == "unavailable":
                 raise UpdateCheckUnavailable("the last PyPI check failed; retry in 24 hours")
-            return cached[1]
+            if cached_latest is not None:
+                return cached_latest
     try:
         payload = _fetch_json(PYPI_JSON_URL)
         info = payload.get("info")
@@ -139,6 +156,7 @@ def latest_version(*, force: bool = False) -> str:
             raise ValueError("PyPI response did not contain a package version")
     except HTTPError as exc:
         if exc.code == 404:
+            _write_cache(cache, None, now, status="unpublished")
             raise PackageNotPublishedError(
                 "mcts-agent is not published on PyPI yet; publish a release before using update"
             ) from exc
