@@ -69,7 +69,8 @@ class TestUpdates(unittest.TestCase):
                     ):
                         updates.latest_version(force=force)
                 self.assertEqual(updates._read_cache(cache, time.time()), ("unpublished", None))
-                updates.latest_version(force=True)
+                with self.assertRaises(updates.PackageNotPublishedError):
+                    updates.latest_version(force=True)
             self.assertEqual(fetch.call_count, 2)
 
     def test_update_command_explains_package_is_not_published(self):
