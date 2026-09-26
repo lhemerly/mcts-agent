@@ -22,6 +22,7 @@ dist/
 build/
 *.egg-info/
 *.egg
+agent/_version.py
 
 # Testing & linting caches
 .pytest_cache/

@@ -10,6 +10,8 @@ jobs:
   test:
     name: Test & Lint (Python ${{ matrix.python-version }})
     runs-on: ubuntu-latest
+    env:
+      MCTS_AGENT_DISABLE_UPDATE_CHECK: "1"
     strategy:
       fail-fast: false
       matrix:
@@ -48,4 +50,3 @@ jobs:
         run: |
           mcts_research_workspace=$(mktemp -d)
           mcts-agent research --query "Investigate a test question" --workspace "$mcts_research_workspace" --mock --max-steps 1 --json
-

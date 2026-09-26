@@ -123,9 +123,20 @@ The local web UI is served by `mcts-agent visualize`.
 
 ### Installation
 
+Once the package is published, install it as a command-line tool with `uv` or
+`pipx`:
+
+```bash
+uv tool install mcts-agent
+# or
+pipx install mcts-agent
+```
+
+For development from source:
+
 ```bash
 # 1. Clone the repository
-git clone https://github.com/luizh/mcts-agent.git
+git clone https://github.com/lhemerly/mcts-agent.git
 cd mcts-agent
 
 # 2. Set up a virtual environment
@@ -135,6 +146,12 @@ source .venv/bin/activate
 # 3. Install in editable mode with CLI entry point
 pip install -e .
 ```
+
+Check for a newer PyPI release with `mcts-agent version`, or explicitly upgrade
+with `mcts-agent update`. Normal CLI commands check PyPI at most once every 24
+hours and only display a notice; they never update automatically. Use
+`mcts-agent --no-update-check ...` or set
+`MCTS_AGENT_DISABLE_UPDATE_CHECK=1` to disable that check.
 
 ### Environment Configuration
 

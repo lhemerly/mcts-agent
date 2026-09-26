@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Callable, Mapping
 from uuid import uuid4
 
+from agent.updates import installed_version, source_commit
 from agent.execution import ExecutionTraceRef, verify_execution_trace
 from agent.config import AgentConfig, load_config
 from agent.mcts import run_mcts
@@ -183,7 +184,9 @@ def run_research(
             cfg = config or load_config()
             limits = settings or ResearchSettings()
             state = ResearchState(run_id=run_dir.name, query=query, workspace=str(work),
-                                  mock=mock, brief=brief, agent_config=asdict(cfg))
+                                  mock=mock, brief=brief, agent_config=asdict(cfg),
+                                  mcts_agent_version=installed_version(),
+                                  git_commit=source_commit())
         if max_steps is not None:
             limits = ResearchSettings(**{**limits.model_dump(), "max_steps": max_steps})
         state.settings = limits.model_dump()
@@ -249,4 +252,3 @@ def run_research(
             state.status, state.error = "failed", str(exc)
         save_state(run_dir, state)
         return state, run_dir
-
