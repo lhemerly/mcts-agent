@@ -6,6 +6,7 @@ import tempfile
 import time
 import unittest
 from contextlib import redirect_stderr
+from urllib.error import HTTPError
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -54,6 +55,34 @@ class TestUpdates(unittest.TestCase):
                 updates, "_fetch_json", side_effect=AssertionError("network called")
             ):
                 self.assertEqual(updates.latest_version(), "0.9.0")
+
+    def test_missing_pypi_project_is_reported_as_not_published(self):
+        with tempfile.TemporaryDirectory() as directory:
+            cache = Path(directory) / "update-check.json"
+            missing = HTTPError(
+                updates.PYPI_JSON_URL, 404, "Not Found", headers=None, fp=None
+            )
+            with patch.object(updates, "_cache_path", return_value=cache), patch.object(
+                updates, "_fetch_json", side_effect=missing
+            ):
+                with self.assertRaisesRegex(
+                    updates.PackageNotPublishedError, "not published on PyPI yet"
+                ):
+                    updates.latest_version(force=True)
+            self.assertFalse(cache.exists())
+
+    def test_update_command_explains_package_is_not_published(self):
+        runner = CliRunner()
+        with patch.object(updates, "installed_version", return_value="0.1.dev59"), patch.object(
+            updates,
+            "latest_version",
+            side_effect=updates.PackageNotPublishedError(
+                "mcts-agent is not published on PyPI yet; publish a release before using update"
+            ),
+        ):
+            result = runner.invoke(app, ["--no-update-check", "update"])
+        self.assertEqual(result.exit_code, 1)
+        self.assertIn("not published on PyPI yet", result.stderr)
 
     def test_failed_check_is_cached_for_a_day(self):
         with tempfile.TemporaryDirectory() as directory:
