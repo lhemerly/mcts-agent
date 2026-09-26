@@ -8,6 +8,8 @@ from typing import Optional
 
 import typer
 
+from agent import updates
+
 
 def register_research_command(app: typer.Typer) -> None:
     @app.command("research")
@@ -33,6 +35,10 @@ def register_research_command(app: typer.Typer) -> None:
         from .runner import run_research
 
         is_json = json_output or bool((ctx.obj or {}).get("json"))
+        updates.show_update_notice(
+            disabled=bool((ctx.obj or {}).get("no_update_check")),
+            quiet=bool((ctx.obj or {}).get("quiet")),
+        )
         try:
             if resume and (planner or executor or system_one):
                 raise ValueError("Resume preserves the saved provider configuration")

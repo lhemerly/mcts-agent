@@ -167,6 +167,19 @@ def check_latest_quietly() -> str | None:
         return None
 
 
+def show_update_notice(*, disabled: bool, quiet: bool) -> None:
+    """Print a non-blocking availability notice unless explicitly suppressed."""
+    if disabled or quiet:
+        return
+    latest = check_latest_quietly()
+    installed = installed_version()
+    if latest and update_available(installed, latest):
+        sys.stderr.write(
+            f"mcts-agent {latest} available (installed {installed}). "
+            "Run `mcts-agent update` to upgrade.\n"
+        )
+
+
 def release_notes(release_version: str) -> str | None:
     try:
         data = _fetch_json(GITHUB_RELEASE_URL.format(version=release_version))

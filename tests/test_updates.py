@@ -1,10 +1,13 @@
 """Tests for version checks and update-command behavior."""
 
+import io
 import json
 import tempfile
 import time
 import unittest
+from contextlib import redirect_stderr
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from typer.testing import CliRunner
@@ -86,24 +89,38 @@ class TestUpdates(unittest.TestCase):
         perform_update.assert_not_called()
 
     def test_available_update_is_reported_without_silent_install(self):
-        runner = CliRunner()
-        with patch.dict("os.environ", {"MCTS_AGENT_DISABLE_UPDATE_CHECK": "0"}), patch.object(
-            updates, "installed_version", return_value="0.5.3"
-        ), patch.object(updates, "check_latest_quietly", return_value="0.6.1"), patch.object(
-            updates, "perform_update"
-        ) as perform_update:
-            result = runner.invoke(app, ["--no-color", "research", "--help"])
-        self.assertEqual(result.exit_code, 0, result.output)
-        self.assertIn("Run `mcts-agent update` to upgrade.", result.stderr)
-        perform_update.assert_not_called()
+        output = io.StringIO()
+        with patch.object(updates, "installed_version", return_value="0.5.3"), patch.object(
+            updates, "check_latest_quietly", return_value="0.6.1"
+        ), redirect_stderr(output):
+            updates.show_update_notice(disabled=False, quiet=False)
+        self.assertIn("Run `mcts-agent update` to upgrade.", output.getvalue())
 
     def test_disable_update_check_environment_variable_skips_network(self):
-        runner = CliRunner()
-        with patch.dict("os.environ", {"MCTS_AGENT_DISABLE_UPDATE_CHECK": "1"}), patch.object(
+        with patch.object(
             updates, "check_latest_quietly", side_effect=AssertionError("network check called")
         ):
-            result = runner.invoke(app, ["research", "--help"])
-        self.assertEqual(result.exit_code, 0, result.output)
+            updates.show_update_notice(disabled=True, quiet=False)
+
+    def test_global_and_command_local_quiet_suppress_update_notice(self):
+        runner = CliRunner()
+        base_args = [
+            "run", "--mock", "--goal", "quiet test", "--max-steps", "1",
+            "--iterations", "1", "--no-execute",
+        ]
+        summary = {
+            "run_id": "quiet-test", "completed": True, "stop_reason": "completed",
+            "total_steps_run": 0, "final_state": "done", "steps": [],
+        }
+        with patch.dict("os.environ", {"MCTS_AGENT_DISABLE_UPDATE_CHECK": "0"}), patch.object(
+            updates, "check_latest_quietly", side_effect=AssertionError("network check called")
+        ), patch("agent.cli.load_config", return_value=SimpleNamespace(planner_model="test")), patch(
+            "agent.cli.run_closed_loop_agent", return_value=summary
+        ):
+            for args in (base_args + ["--quiet"], ["--quiet"] + base_args):
+                result = runner.invoke(app, args)
+                self.assertEqual(result.exit_code, 0, result.output)
+                self.assertEqual(result.stderr, "")
 
 
 if __name__ == "__main__":

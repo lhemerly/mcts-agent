@@ -235,15 +235,6 @@ def main_callback(
     ctx.obj["no_color"] = no_color
     ctx.obj["no_update_check"] = no_update_check
 
-    if no_update_check or ctx.invoked_subcommand in {None, "version", "update"}:
-        return
-    latest = updates.check_latest_quietly()
-    if latest and updates.update_available(updates.installed_version(), latest):
-        sys.stderr.write(
-            f"mcts-agent {latest} available (installed {updates.installed_version()}). "
-            "Run `mcts-agent update` to upgrade.\n"
-        )
-
 
 @app.command("version")
 def show_version() -> None:
@@ -375,6 +366,9 @@ def run(
     is_json = json_output or ctx.obj.get("json", False)
     is_quiet = quiet or ctx.obj.get("quiet", False)
     is_no_color = no_color or ctx.obj.get("no_color", False)
+    updates.show_update_notice(
+        disabled=ctx.obj.get("no_update_check", False), quiet=is_quiet
+    )
     console, err_console = _create_consoles(is_no_color)
 
     _setup_env(mock=mock)
@@ -637,6 +631,10 @@ def interactive(
             param_hint="--quiet",
         )
 
+    updates.show_update_notice(
+        disabled=bool((ctx.obj or {}).get("no_update_check")), quiet=is_quiet
+    )
+
     is_no_color = no_color or (ctx.obj and ctx.obj.get("no_color", False))
     console, _ = _create_consoles(is_no_color)
     _setup_env(mock=mock)
@@ -805,6 +803,9 @@ def visualize(
     is_json = json_output or ctx.obj.get("json", False)
     is_quiet = quiet or ctx.obj.get("quiet", False)
     is_no_color = no_color or ctx.obj.get("no_color", False)
+    updates.show_update_notice(
+        disabled=ctx.obj.get("no_update_check", False), quiet=is_quiet
+    )
     console, _ = _create_consoles(is_no_color)
 
     visualizer_path: Optional[Path] = None
