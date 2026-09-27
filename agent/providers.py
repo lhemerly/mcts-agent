@@ -160,7 +160,7 @@ class AGYPlannerProvider(BasePlannerProvider):
 
                 Instructions:
                 - {_ACTION_SCOPE_RULES}
-                - {random.choice(_CREATIVE_STRATEGIES)}
+                - Given the current state, propose a distinct next course of action to achieve the goal.
                 - Do NOT duplicate, overlap, or rephrase any action listed above (explored or batch).
                 - Output ONLY the single action sentence, with no commentary, numbering, bullets, or preamble.
             """)
@@ -222,15 +222,6 @@ class AGYPlannerProvider(BasePlannerProvider):
         return actions
 
 
-_CREATIVE_STRATEGIES: list[str] = [
-    "Focus on the most direct and decisive next action that moves the current state toward the goal.",
-    "Focus on executing a concrete action that fulfills a key requirement or prerequisite of the goal.",
-    "Focus on inspecting, testing, or diagnosing the current state to uncover necessary information.",
-    "Focus on verifying the results of prior actions and confirming progress toward the goal.",
-    "Focus on the simplest, most reliable action that makes meaningful progress from the current state.",
-]
-
-
 class PiPlannerProvider(BasePlannerProvider):
     """Planner using the Pi agent harness (`pi --print`).
 
@@ -285,7 +276,7 @@ class PiPlannerProvider(BasePlannerProvider):
 
                 Instructions:
                 - {_ACTION_SCOPE_RULES}
-                - {random.choice(_CREATIVE_STRATEGIES)}
+                - Given the current state, propose a distinct next course of action to achieve the goal.
                 - Do NOT duplicate, overlap, or rephrase any action listed above (explored or batch).
                 - Output ONLY the single action sentence, with no commentary, numbering, bullets, or preamble.
             """)
@@ -391,8 +382,7 @@ class OpenCodePlannerProvider(BasePlannerProvider):
             Instructions:
             - You are solely a planning assistant. Do NOT invoke any tools, do NOT run commands, and do NOT inspect or modify files. Answer purely in text directly.
             - {_ACTION_SCOPE_RULES}
-            - {random.choice(_CREATIVE_STRATEGIES)}
-            - Propose a focused immediate next action to take from the current state toward the goal, rather than bundling the entire end-to-end task into one action.
+            - Given the current state, propose {count_str} to achieve the goal. Each action must be a focused next course of action rather than bundling the entire end-to-end task into one action.
             - Do NOT duplicate, overlap, or rephrase any action listed above.
             - {num_instruction}
         """)
