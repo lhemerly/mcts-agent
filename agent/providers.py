@@ -143,9 +143,8 @@ class AGYPlannerProvider(BasePlannerProvider):
             )
 
             prompt = textwrap.dedent(f"""\
-                You are a creative planning assistant. Given the overall goal, the current
-                reasoning state, and candidate actions already proposed so far, propose
-                ONE distinct, novel next action exploring a different angle or strategy.
+                You are a planning assistant in a Monte Carlo Tree Search (MCTS) reasoning system.
+                The question is always: given the current state, what is the next course of action to achieve the goal?
 
                 Goal:
                 {goal}
@@ -162,7 +161,6 @@ class AGYPlannerProvider(BasePlannerProvider):
                 Instructions:
                 - {_ACTION_SCOPE_RULES}
                 - {random.choice(_CREATIVE_STRATEGIES)}
-                - If the obvious answer repeats an action above, brainstorm alternatives privately and output the second or third best distinct action.
                 - Do NOT duplicate, overlap, or rephrase any action listed above (explored or batch).
                 - Output ONLY the single action sentence, with no commentary, numbering, bullets, or preamble.
             """)
@@ -216,7 +214,7 @@ class AGYPlannerProvider(BasePlannerProvider):
                         time.sleep(3)
 
         if not actions:
-            fallback = "Survey workspace, inspect challenge contracts and local RPC instance, and construct initial PoC exploit."
+            fallback = "Inspect current state and workspace to determine the immediate next action toward the goal."
             sys.stderr.write(f"[planner/agy] Warning: no candidate generated, using fallback action: {fallback!r}\n")
             sys.stderr.flush()
             actions.append(fallback)
@@ -225,11 +223,11 @@ class AGYPlannerProvider(BasePlannerProvider):
 
 
 _CREATIVE_STRATEGIES: list[str] = [
-    "Propose a direct, practical action plan to make meaningful progress toward the goal.",
-    "Focus on executing the decisive exploit transaction or required state transition directly.",
-    "Focus on inspecting the contract logic and live storage to deduce the exact required calldata.",
-    "Focus on verifying the on-chain solved status and persisting a clean, reproducible PoC script.",
-    "Focus on the simplest, most reliable action that moves the environment closer to completion.",
+    "Focus on the most direct and decisive next action that moves the current state toward the goal.",
+    "Focus on executing a concrete action that fulfills a key requirement or prerequisite of the goal.",
+    "Focus on inspecting, testing, or diagnosing the current state to uncover necessary information.",
+    "Focus on verifying the results of prior actions and confirming progress toward the goal.",
+    "Focus on the simplest, most reliable action that makes meaningful progress from the current state.",
 ]
 
 
@@ -270,9 +268,8 @@ class PiPlannerProvider(BasePlannerProvider):
             )
 
             prompt = textwrap.dedent(f"""\
-                You are a creative planning assistant. Given the overall goal, the current
-                reasoning state, and candidate actions already proposed so far, propose
-                ONE distinct, novel next action exploring a different angle or strategy.
+                You are a planning assistant in a Monte Carlo Tree Search (MCTS) reasoning system.
+                The question is always: given the current state, what is the next course of action to achieve the goal?
 
                 Goal:
                 {goal}
@@ -289,7 +286,6 @@ class PiPlannerProvider(BasePlannerProvider):
                 Instructions:
                 - {_ACTION_SCOPE_RULES}
                 - {random.choice(_CREATIVE_STRATEGIES)}
-                - If the obvious answer repeats an action above, brainstorm alternatives privately and output the second or third best distinct action.
                 - Do NOT duplicate, overlap, or rephrase any action listed above (explored or batch).
                 - Output ONLY the single action sentence, with no commentary, numbering, bullets, or preamble.
             """)
@@ -347,7 +343,7 @@ class PiPlannerProvider(BasePlannerProvider):
                         time.sleep(3)
 
         if not actions:
-            fallback = "Survey workspace, inspect challenge contracts and local RPC instance, and construct initial PoC exploit."
+            fallback = "Inspect current state and workspace to determine the immediate next action toward the goal."
             sys.stderr.write(f"[planner/pi] Warning: no candidate generated, using fallback action: {fallback!r}\n")
             sys.stderr.flush()
             actions.append(fallback)
@@ -380,8 +376,8 @@ class OpenCodePlannerProvider(BasePlannerProvider):
         num_instruction = f"Output each distinct candidate action on its own line (numbered 1 to {n})." if n > 1 else "Output ONLY the single action sentence, with no commentary, numbering, bullets, or preamble."
 
         prompt = textwrap.dedent(f"""\
-            You are a creative planning assistant. Given the overall goal and the current
-            reasoning state, propose {count_str} exploring different angles or strategies.
+            You are a planning assistant in a Monte Carlo Tree Search (MCTS) reasoning system.
+            The question is always: given the current state, what is the next course of action to achieve the goal?
 
             Goal:
             {goal}
@@ -396,8 +392,7 @@ class OpenCodePlannerProvider(BasePlannerProvider):
             - You are solely a planning assistant. Do NOT invoke any tools, do NOT run commands, and do NOT inspect or modify files. Answer purely in text directly.
             - {_ACTION_SCOPE_RULES}
             - {random.choice(_CREATIVE_STRATEGIES)}
-            - Propose a focused immediate next action (e.g. inspect contracts, run a specific diagnostic/cast command, or send an exploit transaction) rather than bundling the entire end-to-end task into one action.
-            - When reconnaissance or contract inspection has already been performed, prioritize proposing the concrete exploit transaction or PoC execution against the live target instance ($ETHERNAUT_BENCH_INSTANCE) so the level can be solved on-chain.
+            - Propose a focused immediate next action to take from the current state toward the goal, rather than bundling the entire end-to-end task into one action.
             - Do NOT duplicate, overlap, or rephrase any action listed above.
             - {num_instruction}
         """)
@@ -443,7 +438,7 @@ class OpenCodePlannerProvider(BasePlannerProvider):
                     time.sleep(2)
 
         if not actions:
-            fallback = "Survey workspace, inspect challenge contracts and local RPC instance, and construct initial PoC exploit."
+            fallback = "Inspect current state and workspace to determine the immediate next action toward the goal."
             sys.stderr.write(f"[planner/opencode] Warning: no candidate generated, using fallback action: {fallback!r}\n")
             sys.stderr.flush()
             actions.append(fallback)
@@ -490,7 +485,7 @@ class AGYExecutorProvider(BaseExecutorProvider):
             >>> {action.strip()} <<<
 
             All files created or modified MUST be written inside {abs_workspace}.
-            Execute ONLY this specific task. Do not attempt to solve future steps, do not write end-to-end exploit scripts unless explicitly asked by this task, and do not perform work outside this immediate task.
+            Execute ONLY this specific task. Do not attempt to solve future steps, do not write full end-to-end solutions unless explicitly asked by this task, and do not perform work outside this immediate task.
             Always execute commands synchronously to full completion in the foreground; do not leave background tasks running.
         """)
 
@@ -566,7 +561,7 @@ class PiExecutorProvider(BaseExecutorProvider):
             >>> {action.strip()} <<<
 
             All files created or modified MUST be written inside {abs_workspace}.
-            Execute ONLY this specific task. Do not attempt to solve future steps, do not write end-to-end exploit scripts unless explicitly asked by this task, and do not perform work outside this immediate task.
+            Execute ONLY this specific task. Do not attempt to solve future steps, do not write full end-to-end solutions unless explicitly asked by this task, and do not perform work outside this immediate task.
             Always execute commands synchronously to full completion in the foreground; do not leave background tasks running.
         """)
 
@@ -667,7 +662,7 @@ class OpenCodeExecutorProvider(BaseExecutorProvider):
             >>> {action.strip()} <<<
 
             All files created or modified MUST be written inside {abs_workspace}.
-            Execute ONLY this specific task. Do not attempt to solve future steps, do not write end-to-end exploit scripts unless explicitly asked by this task, and do not perform work outside this immediate task.
+            Execute ONLY this specific task. Do not attempt to solve future steps, do not write full end-to-end solutions unless explicitly asked by this task, and do not perform work outside this immediate task.
             Always execute commands synchronously to full completion in the foreground; do not leave background tasks running.
         """)
 
