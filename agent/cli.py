@@ -49,6 +49,12 @@ if _env_path.exists():
 else:
     load_dotenv()
 
+try:
+    sys.stdout.reconfigure(line_buffering=True)
+    sys.stderr.reconfigure(line_buffering=True)
+except Exception:
+    pass
+
 from agent.config import AgentConfig, load_config
 from agent.mcts import (
     adapt_state,

@@ -393,6 +393,7 @@ class OpenCodePlannerProvider(BasePlannerProvider):
             {explored_str}
 
             Instructions:
+            - You are solely a planning assistant. Do NOT invoke any tools, do NOT run commands, and do NOT inspect or modify files. Answer purely in text directly.
             - {_ACTION_SCOPE_RULES}
             - {random.choice(_CREATIVE_STRATEGIES)}
             - Do NOT duplicate, overlap, or rephrase any action listed above.
@@ -409,6 +410,7 @@ class OpenCodePlannerProvider(BasePlannerProvider):
             try:
                 proc = subprocess.run(
                     cmd,
+                    cwd="/tmp",
                     capture_output=True,
                     text=True,
                     timeout=timeout_val,

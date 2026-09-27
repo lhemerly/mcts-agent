@@ -37,7 +37,7 @@ NOUL_COMPLETION_THRESHOLD: float = 0.85
 PRIME_ACTION_COUNTS: list[int] = [2, 3, 5]
 
 # Candidate primes for dynamic simulation lookahead depth
-PRIME_SIMULATION_DEPTHS: list[int] = [2, 3]
+PRIME_SIMULATION_DEPTHS: list[int] = [1, 2]
 
 # Score rubric — 10 ordered levels mapping to a 1-10 scale.
 # TypeSafe Score returns a 0-indexed float (0..9); we add 1 to report as 1-10.
