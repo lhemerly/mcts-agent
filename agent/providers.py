@@ -27,7 +27,9 @@ import os
 import random
 import re
 import subprocess
+import sys
 import textwrap
+import time
 from abc import ABC, abstractmethod
 from importlib.metadata import entry_points
 from typing import Any, Callable, Optional
@@ -113,8 +115,9 @@ class BaseExecutorProvider(ABC):
 # ── Planner Implementations ────────────────────────────────────────────────────
 
 class AGYPlannerProvider(BasePlannerProvider):
-    def __init__(self, model: str = "gemini-3.6-flash-low"):
+    def __init__(self, model: str = "gemini-3.6-flash-low", timeout: int = 0):
         self.model = model
+        self.timeout = timeout
 
     def propose_actions(
         self,
@@ -130,6 +133,8 @@ class AGYPlannerProvider(BasePlannerProvider):
 
         actions: list[str] = []
         repeated_suggestions: dict[str, int] = {}
+        timeout_val = self.timeout if self.timeout and self.timeout > 0 else None
+
         for idx in range(n):
             existing_actions_str = (
                 "\n".join(f"- {act}" for act in actions)
@@ -162,45 +167,59 @@ class AGYPlannerProvider(BasePlannerProvider):
                 - Output ONLY the single action sentence, with no commentary, numbering, bullets, or preamble.
             """)
 
-            try:
-                result = subprocess.run(
-                    ["agy", "--model", self.model, "--print", prompt],
-                    capture_output=True,
-                    text=True,
-                    timeout=60,
-                )
-                if result.returncode != 0:
-                    raise RuntimeError(f"agy exited with code {result.returncode}: {result.stderr.strip()}")
-                raw = result.stdout.strip()
-                lines = [
-                    line.lstrip("0123456789.-*#) ").strip().strip('"\'')
-                    for line in raw.splitlines()
-                    if line.lstrip("0123456789.-*#) ").strip()
-                ]
-                if not lines:
-                    raise ValueError(f"agy returned no parseable action. stdout: {raw!r}")
+            max_retries = 3
+            chosen_action = None
+            for attempt in range(1, max_retries + 1):
+                try:
+                    result = subprocess.run(
+                        ["agy", "--model", self.model, "--print", prompt],
+                        capture_output=True,
+                        text=True,
+                        timeout=timeout_val,
+                    )
+                    if result.returncode != 0:
+                        raise RuntimeError(f"agy exited with code {result.returncode}: {result.stderr.strip() or result.stdout.strip()}")
+                    raw = result.stdout.strip()
+                    lines = [
+                        line.lstrip("0123456789.-*#) ").strip().strip('"\'')
+                        for line in raw.splitlines()
+                        if line.lstrip("0123456789.-*#) ").strip()
+                    ]
+                    if not lines:
+                        raise ValueError(f"agy returned no parseable action. stdout: {raw!r}")
 
-                chosen_action = None
-                all_explored = {_action_key(action) for action in (explored_actions or []) + actions}
-                for candidate in lines:
-                    if candidate and _action_key(candidate) not in all_explored:
-                        chosen_action = candidate
+                    all_explored = {_action_key(action) for action in (explored_actions or []) + actions}
+                    for candidate in lines:
+                        if candidate and _action_key(candidate) not in all_explored:
+                            chosen_action = candidate
+                            break
+                    if chosen_action:
+                        key = _action_key(chosen_action)
+                        repeated_suggestions[key] = repeated_suggestions.get(key, 0) + 1
+                        actions.append(chosen_action)
+                        sys.stderr.write(f"[planner/agy] Generated candidate {idx + 1}/{n}: {chosen_action!r}\n")
+                        sys.stderr.flush()
                         break
-                if not chosen_action:
-                    key = _action_key(lines[0])
-                    repeated_suggestions[key] = repeated_suggestions.get(key, 0) + 1
-                    print(f"[planner/agy] Candidate {idx + 1}/{n} repeated: {lines[0]!r}")
-                    if repeated_suggestions[key] >= 4:
-                        print("[planner/agy] Same action suggested four times; stopping proposal batch.")
-                        break
-                    continue
+                    else:
+                        key = _action_key(lines[0])
+                        repeated_suggestions[key] = repeated_suggestions.get(key, 0) + 1
+                        sys.stderr.write(f"[planner/agy] Candidate {idx + 1}/{n} repeated: {lines[0]!r}\n")
+                        sys.stderr.flush()
+                        if repeated_suggestions[key] >= 4:
+                            sys.stderr.write("[planner/agy] Same action suggested four times; stopping proposal batch.\n")
+                            sys.stderr.flush()
+                            break
+                except Exception as exc:
+                    sys.stderr.write(f"[planner/agy] Candidate {idx + 1}/{n} attempt {attempt}/{max_retries} failed: {exc}\n")
+                    sys.stderr.flush()
+                    if attempt < max_retries:
+                        time.sleep(3)
 
-                key = _action_key(chosen_action)
-                repeated_suggestions[key] = repeated_suggestions.get(key, 0) + 1
-                actions.append(chosen_action)
-                print(f"[planner/agy] Generated candidate {idx + 1}/{n}: {chosen_action!r}")
-            except Exception as exc:
-                print(f"[planner/agy] Candidate {idx + 1}/{n} failed: {exc}. Skipping slot.")
+        if not actions:
+            fallback = "Survey workspace, inspect challenge contracts and local RPC instance, and construct initial PoC exploit."
+            sys.stderr.write(f"[planner/agy] Warning: no candidate generated, using fallback action: {fallback!r}\n")
+            sys.stderr.flush()
+            actions.append(fallback)
 
         return actions
 
@@ -224,7 +243,7 @@ class PiPlannerProvider(BasePlannerProvider):
     without changing Pi's global settings.
     """
 
-    def __init__(self, model: str = "", timeout: int = 60):
+    def __init__(self, model: str = "", timeout: int = 0):
         self.model = model
         self.timeout = timeout
 
@@ -241,6 +260,7 @@ class PiPlannerProvider(BasePlannerProvider):
             "\n".join(f"- {a}" for a in (explored_actions or []))
             or "(None yet)"
         )
+        timeout_val = self.timeout if self.timeout and self.timeout > 0 else None
 
         for idx in range(n):
             existing_actions_str = (
@@ -278,45 +298,59 @@ class PiPlannerProvider(BasePlannerProvider):
             if self.model:
                 cmd = ["pi", "--no-session", "--no-tools", "--model", self.model, "--print", prompt]
 
-            try:
-                result = subprocess.run(
-                    cmd,
-                    capture_output=True,
-                    text=True,
-                    timeout=self.timeout,
-                )
-                if result.returncode != 0:
-                    raise RuntimeError(f"pi exited with code {result.returncode}: {result.stderr.strip()}")
-                raw = result.stdout.strip()
-                lines = [
-                    line.lstrip("0123456789.-*#) ").strip().strip('"\'')
-                    for line in raw.splitlines()
-                    if line.lstrip("0123456789.-*#) ").strip()
-                ]
-                if not lines:
-                    raise ValueError(f"pi returned no parseable action. stdout: {raw!r}")
+            max_retries = 3
+            chosen_action = None
+            for attempt in range(1, max_retries + 1):
+                try:
+                    result = subprocess.run(
+                        cmd,
+                        capture_output=True,
+                        text=True,
+                        timeout=timeout_val,
+                    )
+                    if result.returncode != 0:
+                        raise RuntimeError(f"pi exited with code {result.returncode}: {result.stderr.strip() or result.stdout.strip()}")
+                    raw = result.stdout.strip()
+                    lines = [
+                        line.lstrip("0123456789.-*#) ").strip().strip('"\'')
+                        for line in raw.splitlines()
+                        if line.lstrip("0123456789.-*#) ").strip()
+                    ]
+                    if not lines:
+                        raise ValueError(f"pi returned no parseable action. stdout: {raw!r}")
 
-                chosen_action = None
-                all_explored = {_action_key(a) for a in (explored_actions or []) + actions}
-                for candidate in lines:
-                    if candidate and _action_key(candidate) not in all_explored:
-                        chosen_action = candidate
+                    all_explored = {_action_key(a) for a in (explored_actions or []) + actions}
+                    for candidate in lines:
+                        if candidate and _action_key(candidate) not in all_explored:
+                            chosen_action = candidate
+                            break
+                    if chosen_action:
+                        key = _action_key(chosen_action)
+                        repeated_suggestions[key] = repeated_suggestions.get(key, 0) + 1
+                        actions.append(chosen_action)
+                        sys.stderr.write(f"[planner/pi] Generated candidate {idx + 1}/{n}: {chosen_action!r}\n")
+                        sys.stderr.flush()
                         break
-                if not chosen_action:
-                    key = _action_key(lines[0])
-                    repeated_suggestions[key] = repeated_suggestions.get(key, 0) + 1
-                    print(f"[planner/pi] Candidate {idx + 1}/{n} repeated: {lines[0]!r}")
-                    if repeated_suggestions[key] >= 4:
-                        print("[planner/pi] Same action suggested four times; stopping proposal batch.")
-                        break
-                    continue
+                    else:
+                        key = _action_key(lines[0])
+                        repeated_suggestions[key] = repeated_suggestions.get(key, 0) + 1
+                        sys.stderr.write(f"[planner/pi] Candidate {idx + 1}/{n} repeated: {lines[0]!r}\n")
+                        sys.stderr.flush()
+                        if repeated_suggestions[key] >= 4:
+                            sys.stderr.write("[planner/pi] Same action suggested four times; stopping proposal batch.\n")
+                            sys.stderr.flush()
+                            break
+                except Exception as exc:
+                    sys.stderr.write(f"[planner/pi] Candidate {idx + 1}/{n} attempt {attempt}/{max_retries} failed: {exc}\n")
+                    sys.stderr.flush()
+                    if attempt < max_retries:
+                        time.sleep(3)
 
-                key = _action_key(chosen_action)
-                repeated_suggestions[key] = repeated_suggestions.get(key, 0) + 1
-                actions.append(chosen_action)
-                print(f"[planner/pi] Generated candidate {idx + 1}/{n}: {chosen_action!r}")
-            except Exception as exc:
-                print(f"[planner/pi] Candidate {idx + 1}/{n} failed: {exc}. Skipping slot.")
+        if not actions:
+            fallback = "Survey workspace, inspect challenge contracts and local RPC instance, and construct initial PoC exploit."
+            sys.stderr.write(f"[planner/pi] Warning: no candidate generated, using fallback action: {fallback!r}\n")
+            sys.stderr.flush()
+            actions.append(fallback)
 
         return actions
 
@@ -324,7 +358,7 @@ class PiPlannerProvider(BasePlannerProvider):
 class OpenCodePlannerProvider(BasePlannerProvider):
     """Planner using OpenCode (`opencode run --standalone`)."""
 
-    def __init__(self, model: str = "", timeout: int = 120):
+    def __init__(self, model: str = "", timeout: int = 0):
         self.model = model
         self.timeout = timeout
 
@@ -342,6 +376,8 @@ class OpenCodePlannerProvider(BasePlannerProvider):
 
         actions: list[str] = []
         repeated_suggestions: dict[str, int] = {}
+        timeout_val = self.timeout if self.timeout and self.timeout > 0 else None
+
         for idx in range(n):
             existing_actions_str = (
                 "\n".join(f"- {act}" for act in actions)
@@ -379,45 +415,59 @@ class OpenCodePlannerProvider(BasePlannerProvider):
                 cmd.extend(["-m", self.model])
             cmd.append(prompt)
 
-            try:
-                proc = subprocess.run(
-                    cmd,
-                    capture_output=True,
-                    text=True,
-                    timeout=self.timeout,
-                )
-                if proc.returncode != 0:
-                    raise RuntimeError(f"opencode exited with code {proc.returncode}: {proc.stderr.strip()}")
-                raw = proc.stdout.strip()
-                lines = [
-                    line.lstrip("0123456789.-*#)> ").strip().strip('"\'')
-                    for line in raw.splitlines()
-                    if line.strip() and not line.strip().startswith(">") and not line.strip().startswith("$")
-                ]
-                if not lines:
-                    raise ValueError(f"opencode returned no parseable action. stdout: {raw!r}")
+            max_retries = 3
+            chosen_action = None
+            for attempt in range(1, max_retries + 1):
+                try:
+                    proc = subprocess.run(
+                        cmd,
+                        capture_output=True,
+                        text=True,
+                        timeout=timeout_val,
+                    )
+                    if proc.returncode != 0:
+                        raise RuntimeError(f"opencode exited with code {proc.returncode}: {proc.stderr.strip() or proc.stdout.strip()}")
+                    raw = proc.stdout.strip()
+                    lines = [
+                        line.lstrip("0123456789.-*#)> ").strip().strip('"\'')
+                        for line in raw.splitlines()
+                        if line.strip() and not line.strip().startswith(">") and not line.strip().startswith("$")
+                    ]
+                    if not lines:
+                        raise ValueError(f"opencode returned no parseable action. stdout: {raw!r}")
 
-                chosen_action = None
-                all_explored = {_action_key(action) for action in (explored_actions or []) + actions}
-                for candidate in lines:
-                    if candidate and _action_key(candidate) not in all_explored:
-                        chosen_action = candidate
+                    all_explored = {_action_key(action) for action in (explored_actions or []) + actions}
+                    for candidate in lines:
+                        if candidate and _action_key(candidate) not in all_explored:
+                            chosen_action = candidate
+                            break
+                    if chosen_action:
+                        key = _action_key(chosen_action)
+                        repeated_suggestions[key] = repeated_suggestions.get(key, 0) + 1
+                        actions.append(chosen_action)
+                        sys.stderr.write(f"[planner/opencode] Generated candidate {idx + 1}/{n}: {chosen_action!r}\n")
+                        sys.stderr.flush()
                         break
-                if not chosen_action:
-                    key = _action_key(lines[0])
-                    repeated_suggestions[key] = repeated_suggestions.get(key, 0) + 1
-                    print(f"[planner/opencode] Candidate {idx + 1}/{n} repeated: {lines[0]!r}")
-                    if repeated_suggestions[key] >= 4:
-                        print("[planner/opencode] Same action suggested four times; stopping proposal batch.")
-                        break
-                    continue
+                    else:
+                        key = _action_key(lines[0])
+                        repeated_suggestions[key] = repeated_suggestions.get(key, 0) + 1
+                        sys.stderr.write(f"[planner/opencode] Candidate {idx + 1}/{n} repeated: {lines[0]!r}\n")
+                        sys.stderr.flush()
+                        if repeated_suggestions[key] >= 4:
+                            sys.stderr.write("[planner/opencode] Same action suggested four times; stopping proposal batch.\n")
+                            sys.stderr.flush()
+                            break
+                except Exception as exc:
+                    sys.stderr.write(f"[planner/opencode] Candidate {idx + 1}/{n} attempt {attempt}/{max_retries} failed: {exc}\n")
+                    sys.stderr.flush()
+                    if attempt < max_retries:
+                        time.sleep(3)
 
-                key = _action_key(chosen_action)
-                repeated_suggestions[key] = repeated_suggestions.get(key, 0) + 1
-                actions.append(chosen_action)
-                print(f"[planner/opencode] Generated candidate {idx + 1}/{n}: {chosen_action!r}")
-            except Exception as exc:
-                print(f"[planner/opencode] Candidate {idx + 1}/{n} failed: {exc}. Skipping slot.")
+        if not actions:
+            fallback = "Survey workspace, inspect challenge contracts and local RPC instance, and construct initial PoC exploit."
+            sys.stderr.write(f"[planner/opencode] Warning: no candidate generated, using fallback action: {fallback!r}\n")
+            sys.stderr.flush()
+            actions.append(fallback)
 
         return actions
 
@@ -474,7 +524,8 @@ class AGYExecutorProvider(BaseExecutorProvider):
         print(f"[executor/agy] Executing action with agy in {abs_workspace}: '{action}'")
         print(f"{'='*60}\n")
 
-        timeout_str = f"{max(1, self.timeout // 60)}m0s"
+        timeout_val = self.timeout if self.timeout and self.timeout > 0 else None
+        timeout_str = f"{max(1, (self.timeout // 60) if self.timeout and self.timeout > 0 else 600)}m0s"
         cmd = [
             "agy",
             "--model", self.model,
@@ -491,7 +542,7 @@ class AGYExecutorProvider(BaseExecutorProvider):
                 cwd=workspace_dir,
                 capture_output=True,
                 text=True,
-                timeout=self.timeout,
+                timeout=timeout_val,
             )
             return {
                 "success": proc.returncode == 0,
@@ -500,7 +551,8 @@ class AGYExecutorProvider(BaseExecutorProvider):
                 "returncode": proc.returncode,
             }
         except Exception as exc:
-            print(f"[executor/agy] agy execution failed: {exc}")
+            sys.stderr.write(f"[executor/agy] agy execution failed: {exc}\n")
+            sys.stderr.flush()
             return {
                 "success": False,
                 "stdout": "",
@@ -522,7 +574,7 @@ class PiExecutorProvider(BaseExecutorProvider):
     ~/.pi/agent/models.json.
     """
 
-    def __init__(self, model: str = "", timeout: int = 1800):
+    def __init__(self, model: str = "", timeout: int = 0):
         self.model = model
         self.timeout = timeout
 
@@ -557,13 +609,14 @@ class PiExecutorProvider(BaseExecutorProvider):
         if self.model:
             cmd = ["pi", "--no-session", "--model", self.model, "--print", prompt]
 
+        timeout_val = self.timeout if self.timeout and self.timeout > 0 else None
         try:
             proc = subprocess.run(
                 cmd,
                 cwd=workspace_dir,
                 capture_output=True,
                 text=True,
-                timeout=self.timeout,
+                timeout=timeout_val,
             )
             return {
                 "success": proc.returncode == 0,
@@ -572,7 +625,8 @@ class PiExecutorProvider(BaseExecutorProvider):
                 "returncode": proc.returncode,
             }
         except Exception as exc:
-            print(f"[executor/pi] pi execution failed: {exc}")
+            sys.stderr.write(f"[executor/pi] pi execution failed: {exc}\n")
+            sys.stderr.flush()
             return {"success": False, "stdout": "", "stderr": str(exc), "returncode": -1}
 
 
@@ -583,7 +637,7 @@ class CodexExecutorProvider(BaseExecutorProvider):
     the task and workspace boundary; it never disables Codex permissions.
     """
 
-    def __init__(self, model: str = "", timeout: int = 1800, command: str = "codex"):
+    def __init__(self, model: str = "", timeout: int = 0, command: str = "codex"):
         self.model = model
         self.timeout = timeout
         self.command = command
@@ -606,21 +660,24 @@ class CodexExecutorProvider(BaseExecutorProvider):
         if self.model:
             cmd += ["--model", self.model]
         cmd.append(prompt)
+        timeout_val = self.timeout if self.timeout and self.timeout > 0 else None
         try:
-            proc = subprocess.run(cmd, cwd=workspace, capture_output=True, text=True, timeout=self.timeout)
+            proc = subprocess.run(cmd, cwd=workspace, capture_output=True, text=True, timeout=timeout_val)
             return {"success": proc.returncode == 0, "stdout": proc.stdout.strip(),
                     "stderr": proc.stderr.strip(), "returncode": proc.returncode}
         except subprocess.TimeoutExpired as exc:
             return {"success": False, "stdout": (exc.stdout or ""), "stderr": "Codex execution timed out",
                     "returncode": -1, "cancelled": True}
         except Exception as exc:
+            sys.stderr.write(f"[executor/codex] codex execution failed: {exc}\n")
+            sys.stderr.flush()
             return {"success": False, "stdout": "", "stderr": str(exc), "returncode": -1}
 
 
 class OpenCodeExecutorProvider(BaseExecutorProvider):
     """Executor using OpenCode (`opencode run --standalone --auto`)."""
 
-    def __init__(self, model: str = "", timeout: int = 1800):
+    def __init__(self, model: str = "", timeout: int = 0):
         self.model = model
         self.timeout = timeout
 
@@ -656,13 +713,14 @@ class OpenCodeExecutorProvider(BaseExecutorProvider):
             cmd.extend(["-m", self.model])
         cmd.append(prompt)
 
+        timeout_val = self.timeout if self.timeout and self.timeout > 0 else None
         try:
             proc = subprocess.run(
                 cmd,
                 cwd=workspace_dir,
                 capture_output=True,
                 text=True,
-                timeout=self.timeout,
+                timeout=timeout_val,
             )
             return {
                 "success": proc.returncode == 0,
@@ -679,7 +737,8 @@ class OpenCodeExecutorProvider(BaseExecutorProvider):
                 "cancelled": True,
             }
         except Exception as exc:
-            print(f"[executor/opencode] opencode execution failed: {exc}")
+            sys.stderr.write(f"[executor/opencode] opencode execution failed: {exc}\n")
+            sys.stderr.flush()
             return {"success": False, "stdout": "", "stderr": str(exc), "returncode": -1}
 
 
@@ -773,24 +832,43 @@ def get_executor_provider(config: AgentConfig) -> BaseExecutorProvider:
 
 register_harness(
     "agy",
-    planner_factory=lambda cfg: AGYPlannerProvider(cfg.planner_model or "gemini-3.6-flash-low"),
+    planner_factory=lambda cfg: AGYPlannerProvider(
+        cfg.planner_model or "gemini-3.6-flash-low",
+        cfg.planner_timeout,
+    ),
     executor_factory=lambda cfg: AGYExecutorProvider(
-        cfg.executor_model or "gemini-3.8-flash-medium", cfg.executor_timeout
+        cfg.executor_model or "gemini-3.8-flash-medium",
+        cfg.executor_timeout,
     ),
 )
 register_harness(
     "pi",
-    planner_factory=lambda cfg: PiPlannerProvider(cfg.planner_model),
-    executor_factory=lambda cfg: PiExecutorProvider(cfg.executor_model, cfg.executor_timeout),
+    planner_factory=lambda cfg: PiPlannerProvider(
+        cfg.planner_model,
+        cfg.planner_timeout,
+    ),
+    executor_factory=lambda cfg: PiExecutorProvider(
+        cfg.executor_model,
+        cfg.executor_timeout,
+    ),
 )
 register_harness(
     "codex",
-    executor_factory=lambda cfg: CodexExecutorProvider(cfg.executor_model, cfg.executor_timeout),
+    executor_factory=lambda cfg: CodexExecutorProvider(
+        cfg.executor_model,
+        cfg.executor_timeout,
+    ),
 )
 register_harness(
     "opencode",
-    planner_factory=lambda cfg: OpenCodePlannerProvider(cfg.planner_model),
-    executor_factory=lambda cfg: OpenCodeExecutorProvider(cfg.executor_model, cfg.executor_timeout),
+    planner_factory=lambda cfg: OpenCodePlannerProvider(
+        cfg.planner_model,
+        cfg.planner_timeout,
+    ),
+    executor_factory=lambda cfg: OpenCodeExecutorProvider(
+        cfg.executor_model,
+        cfg.executor_timeout,
+    ),
 )
 register_harness(
     "mock",

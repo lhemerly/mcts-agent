@@ -34,6 +34,7 @@ class AgentConfig:
     # Empty means "use the selected harness's configured default". AGY's
     # fallback is applied when its provider is instantiated.
     planner_model: str = ""
+    planner_timeout: int = 0
 
     # Executor settings
     executor_model: str = ""
@@ -158,16 +159,27 @@ def load_config(
         executor_sec, str(executor_provider), "gemini-3.8-flash-medium",
     )
 
+    planner_timeout_raw = (
+        cli_overrides.get("planner_timeout")
+        or os.getenv("MCTS_PLANNER_TIMEOUT")
+        or planner_sec.get("timeout")
+        or 0
+    )
+    try:
+        planner_timeout = int(planner_timeout_raw)
+    except (ValueError, TypeError):
+        planner_timeout = 0
+
     timeout_raw = (
         cli_overrides.get("executor_timeout")
         or os.getenv("MCTS_EXEC_TIMEOUT")
         or executor_sec.get("timeout")
-        or 1800
+        or 0
     )
     try:
         executor_timeout = int(timeout_raw)
     except (ValueError, TypeError):
-        executor_timeout = 1800
+        executor_timeout = 0
 
     # ── Tree expansion / reuse config ────────────────────────────────────────
     def _int_cfg(key: str, env: str, section: dict, default: int) -> int:
@@ -221,6 +233,7 @@ def load_config(
         executor_provider=str(executor_provider).lower(),
         planner_model=str(planner_model),
         executor_model=str(executor_model),
+        planner_timeout=planner_timeout,
         executor_timeout=executor_timeout,
         system_one_provider=str(system_one_provider).lower(),
         expansion_width=expansion_width,
