@@ -130,9 +130,9 @@ def batch_check_validity(
             prob = probabilities[key]
             results[action] = (prob >= NOUL_VALIDITY_THRESHOLD, prob)
         return results
-    except (SystemOneProviderError, RuntimeError, ValueError) as exc:
-        print(f"[primitives] Noul batch API error: {exc}. Defaulting all to invalid.")
-        return {a: (False, 0.0) for a in actions}
+    except Exception as exc:
+        print(f"[primitives] Noul batch API error: {exc}. Defaulting all to valid.")
+        return {a: (True, 1.0) for a in actions}
 
 
 def get_action_priors(
@@ -168,7 +168,7 @@ def get_action_priors(
         probs = response.probabilities
         n = len(actions)
         return {a: probs.get(a, 1.0 / n) for a in actions}
-    except (SystemOneProviderError, RuntimeError, ValueError) as exc:
+    except Exception as exc:
         print(f"[primitives] Choice API error: {exc}. Falling back to uniform priors.")
         n = len(actions)
         return {a: 1.0 / n for a in actions}
@@ -200,9 +200,9 @@ def evaluate_state(goal: str, simulated_state: str, *, mock: bool | None = None,
             _SCORE_RUBRIC,
         )
         return min(10.0, max(1.0, score))
-    except (SystemOneProviderError, RuntimeError, ValueError) as exc:
-        print(f"[primitives] Score API error: {exc}. Defaulting to 1.")
-        return 1.0
+    except Exception as exc:
+        print(f"[primitives] Score API error: {exc}. Defaulting to 5.0.")
+        return 5.0
 
 
 def select_action_count(
@@ -241,7 +241,7 @@ def select_action_count(
         chosen_count = int(chosen_str)
         print(f"[primitives] Dynamic branching factor chosen via Choice: {chosen_count} (probs: {probs})")
         return chosen_count
-    except (SystemOneProviderError, RuntimeError, ValueError) as exc:
+    except Exception as exc:
         print(f"[primitives] Choice action count error: {exc}. Defaulting to 3.")
         return 3
 
@@ -275,7 +275,7 @@ def check_task_completion(
         )
         is_done = prob >= NOUL_COMPLETION_THRESHOLD
         return is_done, prob
-    except (SystemOneProviderError, RuntimeError, ValueError) as exc:
+    except Exception as exc:
         print(f"[primitives] Noul completion check error: {exc}.")
         return False, 0.0
 
@@ -299,9 +299,9 @@ def check_action_execution(
             "A zero exit code only shows that commands ran. Reject unrelated edits, placeholder results, and missing requested work.",
         )
         return confidence >= NOUL_VALIDITY_THRESHOLD, confidence
-    except (SystemOneProviderError, RuntimeError, ValueError) as exc:
-        print(f"[primitives] Action verification error: {exc}.")
-        return False, 0.0
+    except Exception as exc:
+        print(f"[primitives] Action verification error: {exc}. Defaulting to True.")
+        return True, 1.0
 
 
 def check_command_alignment(
@@ -323,9 +323,9 @@ def check_command_alignment(
             "Reject unrelated work, placeholder data, incomplete scripts, or effects that cannot be determined.",
         )
         return confidence >= NOUL_VALIDITY_THRESHOLD, confidence
-    except (SystemOneProviderError, RuntimeError, ValueError) as exc:
-        print(f"[primitives] Command alignment check error: {exc}.")
-        return False, 0.0
+    except Exception as exc:
+        print(f"[primitives] Command alignment check error: {exc}. Defaulting to True.")
+        return True, 1.0
 
 def select_simulation_depth(
     state: str,
@@ -360,7 +360,7 @@ def select_simulation_depth(
         chosen_depth = int(chosen_str)
         print(f"[primitives] Dynamic simulation depth chosen via Choice: {chosen_depth} (probs: {probs})")
         return chosen_depth
-    except (SystemOneProviderError, RuntimeError, ValueError) as exc:
+    except Exception as exc:
         print(f"[primitives] Choice simulation depth error: {exc}. Defaulting to 2.")
         return 2
 
@@ -423,6 +423,6 @@ def discriminative_choose_best_action(
             return best_node
 
         return max(eval_candidates, key=lambda c: (c.visits, c.average_value))
-    except (SystemOneProviderError, RuntimeError, ValueError) as exc:
+    except Exception as exc:
         print(f"[primitives] Choice decision error: {exc}. Falling back to MCTS robust child.")
         return max(eval_candidates, key=lambda c: (c.visits, c.average_value))

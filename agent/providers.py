@@ -123,9 +123,6 @@ class AGYPlannerProvider(BasePlannerProvider):
         n: int = 3,
         explored_actions: Optional[list[str]] = None,
     ) -> list[str]:
-        if os.getenv("USE_MOCK_PRIMITIVES", "false").lower() in ("1", "true", "yes"):
-            return random.sample(_MOCK_ACTION_POOL, min(n, len(_MOCK_ACTION_POOL)))
-
         explored_str = (
             "\n".join(f"- {a}" for a in (explored_actions or []))
             or "(None yet)"
@@ -338,9 +335,6 @@ class OpenCodePlannerProvider(BasePlannerProvider):
         n: int = 3,
         explored_actions: Optional[list[str]] = None,
     ) -> list[str]:
-        if os.getenv("USE_MOCK_PRIMITIVES", "false").lower() in ("1", "true", "yes"):
-            return random.sample(_MOCK_ACTION_POOL, min(n, len(_MOCK_ACTION_POOL)))
-
         explored_str = (
             "\n".join(f"- {a}" for a in (explored_actions or []))
             or "(None yet)"

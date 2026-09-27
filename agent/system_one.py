@@ -58,13 +58,18 @@ class TypeSafeSystemOneProvider(BaseSystemOneProvider):
     @property
     def client(self) -> Any:
         if self._client is None:
-            self._client = self._client_type()
+            try:
+                self._client = self._client_type()
+            except Exception as exc:
+                raise SystemOneProviderError(f"Failed to initialize TypeSafe client: {exc}") from exc
         return self._client
 
     def _call(self, state: Mapping[str, Any], questions: Mapping[str, Any]) -> Any:
         try:
             return self.client.system_one(state=dict(state), questions=dict(questions))
-        except self._api_error as exc:
+        except SystemOneProviderError:
+            raise
+        except Exception as exc:
             raise SystemOneProviderError(str(exc)) from exc
 
     def choose(self, state: Mapping[str, Any], instructions: str,
