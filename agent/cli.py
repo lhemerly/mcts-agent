@@ -299,10 +299,20 @@ def run(
         None, "--workspace", "-w", help="Working directory for agent execution."
     ),
     planner: Optional[str] = typer.Option(
-        None, "--planner", "-p", help="Planner harness (agy | pi | mock)."
+        None, "--planner", "-p", help="Planner harness (agy | pi | opencode | mock)."
     ),
     executor: Optional[str] = typer.Option(
-        None, "--executor", "-e", help="Executor harness (agy | pi | mock)."
+        None, "--executor", "-e", help="Executor harness (agy | pi | opencode | mock)."
+    ),
+    planner_model: Optional[str] = typer.Option(
+        None,
+        "--planner-model",
+        help="AI model for planner harness.",
+    ),
+    executor_model: Optional[str] = typer.Option(
+        None,
+        "--executor-model",
+        help="AI model for executor harness.",
     ),
     proposal_model: str = typer.Option(
         os.getenv("AGY_PROPOSAL_MODEL", "gemini-3.8-flash-low"),
@@ -400,12 +410,20 @@ def run(
         planner = None
     if isinstance(executor, typer.models.OptionInfo):
         executor = None
+    if isinstance(planner_model, typer.models.OptionInfo):
+        planner_model = None
+    if isinstance(executor_model, typer.models.OptionInfo):
+        executor_model = None
 
     config_overrides: dict[str, Any] = {}
     if planner:
         config_overrides["planner_provider"] = planner
     if executor:
         config_overrides["executor_provider"] = executor
+    if planner_model:
+        config_overrides["planner_model"] = planner_model
+    if executor_model:
+        config_overrides["executor_model"] = executor_model
 
     cfg = load_config(cli_overrides=config_overrides)
 

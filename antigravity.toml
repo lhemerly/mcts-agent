@@ -18,8 +18,8 @@ planner = "pi"   # options: "agy", "pi", "mock"
 executor = "pi"  # options: "agy", "pi", "mock"
 
 [planner]
-model = ""
+model = "llama/qwen3.5-9b"
 
 [executor]
-model = ""
+model = "llama/qwen3.5-9b"
 timeout = 1800

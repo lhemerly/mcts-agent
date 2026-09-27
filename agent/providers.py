@@ -8,14 +8,17 @@ Architecture: harness-of-harnesses
   result: did the harness succeed and what changed in the workspace?
 
 Planner harnesses  (propose candidate action strings, no workspace access):
-  - AGYPlannerProvider   — Antigravity CLI  (`agy --print`)
-  - PiPlannerProvider    — Pi coding agent  (`pi --print`)
-  - MockPlannerProvider  — Deterministic mock for unit tests
+  - AGYPlannerProvider      — Antigravity CLI  (`agy --print`)
+  - PiPlannerProvider       — Pi coding agent  (`pi --print`)
+  - OpenCodePlannerProvider — OpenCode CLI     (`opencode run --standalone`)
+  - MockPlannerProvider     — Deterministic mock for unit tests
 
 Executor harnesses  (carry out a single action in the workspace):
-  - AGYExecutorProvider  — Antigravity CLI  (`agy --mode accept-edits --print`)
-  - PiExecutorProvider   — Pi coding agent  (`pi --print`)
-  - MockExecutorProvider — No-op mock for unit tests
+  - AGYExecutorProvider      — Antigravity CLI  (`agy --mode accept-edits --print`)
+  - PiExecutorProvider       — Pi coding agent  (`pi --print`)
+  - OpenCodeExecutorProvider — OpenCode CLI     (`opencode run --standalone --auto`)
+  - CodexExecutorProvider    — Codex CLI        (`codex exec`)
+  - MockExecutorProvider     — No-op mock for unit tests
 """
 
 from __future__ import annotations
@@ -321,6 +324,110 @@ class PiPlannerProvider(BasePlannerProvider):
         return actions
 
 
+class OpenCodePlannerProvider(BasePlannerProvider):
+    """Planner using OpenCode (`opencode run --standalone`)."""
+
+    def __init__(self, model: str = "", timeout: int = 120):
+        self.model = model
+        self.timeout = timeout
+
+    def propose_actions(
+        self,
+        state: str,
+        goal: str,
+        n: int = 3,
+        explored_actions: Optional[list[str]] = None,
+    ) -> list[str]:
+        if os.getenv("USE_MOCK_PRIMITIVES", "false").lower() in ("1", "true", "yes"):
+            return random.sample(_MOCK_ACTION_POOL, min(n, len(_MOCK_ACTION_POOL)))
+
+        explored_str = (
+            "\n".join(f"- {a}" for a in (explored_actions or []))
+            or "(None yet)"
+        )
+
+        actions: list[str] = []
+        repeated_suggestions: dict[str, int] = {}
+        for idx in range(n):
+            existing_actions_str = (
+                "\n".join(f"- {act}" for act in actions)
+                if actions
+                else "(No actions proposed yet for this expansion)"
+            )
+
+            prompt = textwrap.dedent(f"""\
+                You are a creative planning assistant. Given the overall goal, the current
+                reasoning state, and candidate actions already proposed so far, propose
+                ONE distinct, novel next action exploring a different angle or strategy.
+
+                Goal:
+                {goal}
+
+                Current state / context:
+                {state}
+
+                Actions ALREADY EXPLORED anywhere in the search tree (DO NOT reproduce these):
+                {explored_str}
+
+                Actions already proposed in this current expansion batch:
+                {existing_actions_str}
+
+                Instructions:
+                - {_ACTION_SCOPE_RULES}
+                - {random.choice(_CREATIVE_STRATEGIES)}
+                - If the obvious answer repeats an action above, brainstorm alternatives privately and output the second or third best distinct action.
+                - Do NOT duplicate, overlap, or rephrase any action listed above (explored or batch).
+                - Output ONLY the single action sentence, with no commentary, numbering, bullets, or preamble.
+            """)
+
+            cmd = ["opencode", "run", "--standalone", "--auto"]
+            if self.model:
+                cmd.extend(["-m", self.model])
+            cmd.append(prompt)
+
+            try:
+                proc = subprocess.run(
+                    cmd,
+                    capture_output=True,
+                    text=True,
+                    timeout=self.timeout,
+                )
+                if proc.returncode != 0:
+                    raise RuntimeError(f"opencode exited with code {proc.returncode}: {proc.stderr.strip()}")
+                raw = proc.stdout.strip()
+                lines = [
+                    line.lstrip("0123456789.-*#)> ").strip().strip('"\'')
+                    for line in raw.splitlines()
+                    if line.strip() and not line.strip().startswith(">") and not line.strip().startswith("$")
+                ]
+                if not lines:
+                    raise ValueError(f"opencode returned no parseable action. stdout: {raw!r}")
+
+                chosen_action = None
+                all_explored = {_action_key(action) for action in (explored_actions or []) + actions}
+                for candidate in lines:
+                    if candidate and _action_key(candidate) not in all_explored:
+                        chosen_action = candidate
+                        break
+                if not chosen_action:
+                    key = _action_key(lines[0])
+                    repeated_suggestions[key] = repeated_suggestions.get(key, 0) + 1
+                    print(f"[planner/opencode] Candidate {idx + 1}/{n} repeated: {lines[0]!r}")
+                    if repeated_suggestions[key] >= 4:
+                        print("[planner/opencode] Same action suggested four times; stopping proposal batch.")
+                        break
+                    continue
+
+                key = _action_key(chosen_action)
+                repeated_suggestions[key] = repeated_suggestions.get(key, 0) + 1
+                actions.append(chosen_action)
+                print(f"[planner/opencode] Generated candidate {idx + 1}/{n}: {chosen_action!r}")
+            except Exception as exc:
+                print(f"[planner/opencode] Candidate {idx + 1}/{n} failed: {exc}. Skipping slot.")
+
+        return actions
+
+
 
 class MockPlannerProvider(BasePlannerProvider):
     def propose_actions(
@@ -516,6 +623,72 @@ class CodexExecutorProvider(BaseExecutorProvider):
             return {"success": False, "stdout": "", "stderr": str(exc), "returncode": -1}
 
 
+class OpenCodeExecutorProvider(BaseExecutorProvider):
+    """Executor using OpenCode (`opencode run --standalone --auto`)."""
+
+    def __init__(self, model: str = "", timeout: int = 1800):
+        self.model = model
+        self.timeout = timeout
+
+    def execute_action(
+        self, action: str, goal: str, workspace_dir: str
+    ) -> dict[str, Any]:
+        abs_workspace = _safe_abspath(workspace_dir)
+        prompt = textwrap.dedent(f"""\
+            You are the execution agent in a closed-loop reasoning system.
+
+            Goal:
+            {goal.strip()}
+
+            Target Workspace Directory:
+            {abs_workspace}
+
+            Task:
+            Execute this planned action in this workspace:
+            >>> {action.strip()} <<<
+
+            All files created or modified MUST be written inside {abs_workspace}.
+            Apply the necessary edits, write the code, or run the commands required for this action.
+            Always execute commands synchronously to full completion in the foreground; do not leave background tasks running.
+            Complete the requested scope, but do not expand into unrelated future work.
+        """)
+
+        print(f"\n{'='*60}")
+        print(f"[executor/opencode] Executing action with opencode in {abs_workspace}: '{action}'")
+        print(f"{'='*60}\n")
+
+        cmd = ["opencode", "run", "--standalone", "--auto"]
+        if self.model:
+            cmd.extend(["-m", self.model])
+        cmd.append(prompt)
+
+        try:
+            proc = subprocess.run(
+                cmd,
+                cwd=workspace_dir,
+                capture_output=True,
+                text=True,
+                timeout=self.timeout,
+            )
+            return {
+                "success": proc.returncode == 0,
+                "stdout": proc.stdout.strip(),
+                "stderr": proc.stderr.strip(),
+                "returncode": proc.returncode,
+            }
+        except subprocess.TimeoutExpired as exc:
+            return {
+                "success": False,
+                "stdout": (exc.stdout or ""),
+                "stderr": "OpenCode execution timed out",
+                "returncode": -1,
+                "cancelled": True,
+            }
+        except Exception as exc:
+            print(f"[executor/opencode] opencode execution failed: {exc}")
+            return {"success": False, "stdout": "", "stderr": str(exc), "returncode": -1}
+
+
 class MockExecutorProvider(BaseExecutorProvider):
     def execute_action(
         self, action: str, goal: str, workspace_dir: str
@@ -619,6 +792,11 @@ register_harness(
 register_harness(
     "codex",
     executor_factory=lambda cfg: CodexExecutorProvider(cfg.executor_model, cfg.executor_timeout),
+)
+register_harness(
+    "opencode",
+    planner_factory=lambda cfg: OpenCodePlannerProvider(cfg.planner_model),
+    executor_factory=lambda cfg: OpenCodeExecutorProvider(cfg.executor_model, cfg.executor_timeout),
 )
 register_harness(
     "mock",

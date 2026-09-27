@@ -149,6 +149,32 @@ executor = "agy"
         self.assertIn("--skip-git-repo-check", command)
         self.assertEqual(command[command.index("--cd") + 1], workspace)
 
+    def test_opencode_planner_invokes_harness_with_model(self):
+        with patch.dict(os.environ, {"USE_MOCK_PRIMITIVES": "false"}), patch(
+            "agent.providers.subprocess.run",
+            return_value=MagicMock(returncode=0, stdout="Inspect the contracts\n", stderr=""),
+        ) as run:
+            from agent.providers import OpenCodePlannerProvider
+            actions = OpenCodePlannerProvider(model="opencode/space-bunny-free").propose_actions("State", "Goal", n=1)
+        self.assertEqual(actions, ["Inspect the contracts"])
+        command = run.call_args.args[0]
+        self.assertEqual(command[:4], ["opencode", "run", "--standalone", "--auto"])
+        model_index = command.index("-m")
+        self.assertEqual(command[model_index + 1], "opencode/space-bunny-free")
+
+    def test_opencode_executor_invokes_harness_in_workspace(self):
+        with tempfile.TemporaryDirectory() as workspace, patch(
+            "agent.providers.subprocess.run",
+            return_value=MagicMock(returncode=0, stdout="done", stderr=""),
+        ) as run:
+            from agent.providers import OpenCodeExecutorProvider
+            result = OpenCodeExecutorProvider(model="opencode/mimo-v2.6-flash-free").execute_action("Run exploit", "Goal", workspace)
+        self.assertTrue(result["success"])
+        self.assertEqual(run.call_args.kwargs["cwd"], workspace)
+        command = run.call_args.args[0]
+        self.assertEqual(command[:4], ["opencode", "run", "--standalone", "--auto"])
+        self.assertEqual(command[command.index("-m") + 1], "opencode/mimo-v2.6-flash-free")
+
     def test_mock_providers_remain_hermetic(self):
         config = AgentConfig(planner_provider="mock", executor_provider="mock")
         actions = get_planner_provider(config).propose_actions("Start", "Goal", n=3)
