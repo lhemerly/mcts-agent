@@ -226,10 +226,10 @@ class AGYPlannerProvider(BasePlannerProvider):
 
 _CREATIVE_STRATEGIES: list[str] = [
     "Propose a direct, practical action plan to make meaningful progress toward the goal.",
-    "Brainstorm three distinct action plans privately; output the SECOND best plan, not the obvious first choice.",
-    "Brainstorm four distinct action plans privately; output the THIRD best plan, not the obvious first choice.",
-    "Go crazy and think outside the box: find an unconventional but executable approach.",
-    "Switch perspective to a tester or maintainer and choose a different concrete approach.",
+    "Focus on executing the decisive exploit transaction or required state transition directly.",
+    "Focus on inspecting the contract logic and live storage to deduce the exact required calldata.",
+    "Focus on verifying the on-chain solved status and persisting a clean, reproducible PoC script.",
+    "Focus on the simplest, most reliable action that moves the environment closer to completion.",
 ]
 
 
@@ -396,7 +396,8 @@ class OpenCodePlannerProvider(BasePlannerProvider):
             - You are solely a planning assistant. Do NOT invoke any tools, do NOT run commands, and do NOT inspect or modify files. Answer purely in text directly.
             - {_ACTION_SCOPE_RULES}
             - {random.choice(_CREATIVE_STRATEGIES)}
-            - Propose a focused immediate next action (e.g. inspect contracts, run a specific diagnostic/cast command, or send a specific transaction) rather than bundling the entire end-to-end task into one action.
+            - Propose a focused immediate next action (e.g. inspect contracts, run a specific diagnostic/cast command, or send an exploit transaction) rather than bundling the entire end-to-end task into one action.
+            - When reconnaissance or contract inspection has already been performed, prioritize proposing the concrete exploit transaction or PoC execution against the live target instance ($ETHERNAUT_BENCH_INSTANCE) so the level can be solved on-chain.
             - Do NOT duplicate, overlap, or rephrase any action listed above.
             - {num_instruction}
         """)
