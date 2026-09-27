@@ -34,6 +34,7 @@ import subprocess
 import textwrap
 from datetime import datetime
 from typing import Any, Callable, Optional
+import uuid
 
 from agent.config import AgentConfig, load_config
 from agent.logger import MCTSLogger, save_agent_summary
@@ -744,7 +745,7 @@ def run_closed_loop_agent(
     max_dynamic_steps = int(os.getenv("MCTS_DYNAMIC_MAX_STEPS", "50"))
     effective_max_steps = max_steps if max_steps is not None else max_dynamic_steps
 
-    run_id = datetime.now().strftime("%Y%m%d_%H%M%S")
+    run_id = f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{os.getpid()}_{uuid.uuid4().hex[:6]}"
     agent_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     try:
         current_cwd = os.getcwd()
