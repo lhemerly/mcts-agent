@@ -396,6 +396,7 @@ class OpenCodePlannerProvider(BasePlannerProvider):
             - You are solely a planning assistant. Do NOT invoke any tools, do NOT run commands, and do NOT inspect or modify files. Answer purely in text directly.
             - {_ACTION_SCOPE_RULES}
             - {random.choice(_CREATIVE_STRATEGIES)}
+            - Propose a focused immediate next action (e.g. inspect contracts, run a specific diagnostic/cast command, or send a specific transaction) rather than bundling the entire end-to-end task into one action.
             - Do NOT duplicate, overlap, or rephrase any action listed above.
             - {num_instruction}
         """)
