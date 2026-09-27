@@ -10,7 +10,17 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from importlib.metadata import entry_points
+from pathlib import Path
 from typing import Any, Callable, Mapping
+
+from dotenv import load_dotenv
+
+_repo_root = Path(__file__).resolve().parent.parent
+_env_path = _repo_root / ".env"
+if _env_path.exists():
+    load_dotenv(str(_env_path))
+else:
+    load_dotenv()
 
 
 class SystemOneProviderError(RuntimeError):
