@@ -47,6 +47,7 @@ from agent.primitives import (
     evaluate_state,
     get_action_priors,
     select_action_count,
+    select_simulation_depth,
 )
 from agent.updates import installed_version, source_commit
 from agent.providers import get_executor_provider, get_planner_provider
@@ -420,16 +421,25 @@ def run_mcts(
     cfg = config or load_config()
 
     # Resolve width and depth with override priority
-    width = actions_per_node if actions_per_node is not None else cfg.expansion_width
-    depth = (
-        expansion_depth if expansion_depth is not None
-        else simulation_depth if simulation_depth is not None
-        else cfg.expansion_depth
-    )
-    # Default PUCT iterations: one per leaf in the initial tree so every leaf gets
-    # a backprop pass.  Callers can override with iterations=0 to skip.
+    if actions_per_node is not None:
+        width = actions_per_node
+    elif cfg.expansion_width != 3:
+        width = cfg.expansion_width
+    else:
+        width = select_action_count(root.state, goal, system_one_provider=cfg.system_one_provider)
+
+    if expansion_depth is not None:
+        depth = expansion_depth
+    elif simulation_depth is not None:
+        depth = simulation_depth
+    elif cfg.expansion_depth != 3:
+        depth = cfg.expansion_depth
+    else:
+        depth = select_simulation_depth(root.state, goal, system_one_provider=cfg.system_one_provider)
+
+    # Default PUCT iterations: dynamic lookahead bounded to prevent explosion
     effective_iterations = 0 if reuse_tree else (
-        iterations if iterations is not None else (width ** depth)
+        iterations if iterations is not None else min(width ** depth, 25)
     )
 
     logger = MCTSLogger(
@@ -735,12 +745,8 @@ def run_closed_loop_agent(
         )
 
     cfg = config or load_config()
-    width = actions_per_node if actions_per_node is not None else cfg.expansion_width
-    depth = (
-        expansion_depth if expansion_depth is not None
-        else simulation_depth if simulation_depth is not None
-        else cfg.expansion_depth
-    )
+    width_desc = f"width={actions_per_node}" if actions_per_node is not None else "width=Dynamic (JEV Choice)"
+    depth_desc = f"depth={expansion_depth or simulation_depth}" if (expansion_depth or simulation_depth) is not None else "depth=Dynamic (JEV Choice)"
 
     max_dynamic_steps = int(os.getenv("MCTS_DYNAMIC_MAX_STEPS", "50"))
     effective_max_steps = max_steps if max_steps is not None else max_dynamic_steps
@@ -770,7 +776,7 @@ def run_closed_loop_agent(
     print(f"Run ID: {run_id} | {steps_desc} | {iter_desc}")
     print(f"Planner Provider: {cfg.planner_provider} (model={cfg.planner_model})")
     print(f"Executor Provider: {cfg.executor_provider} (model={cfg.executor_model})")
-    print(f"Tree: width={width}, depth={depth}, reuse={cfg.tree_reuse_enabled}, "
+    print(f"Tree: {width_desc}, {depth_desc}, reuse={cfg.tree_reuse_enabled}, "
           f"threshold={cfg.reuse_score_threshold}, recombined={cfg.n_recombined_paths}")
     print(f"Goal: {goal}")
     print(f"Workspace: {target_workspace}")
@@ -794,7 +800,26 @@ def run_closed_loop_agent(
         print(f"{'*' * 60}")
 
         # ── 1. PLAN & CHOOSE ──────────────────────────────────────────────────
-        print(f"\n[PLAN & CHOOSE] Evaluating candidates for immediate action...")
+        # Determine dynamic width and depth for this step if not explicitly set
+        if actions_per_node is not None:
+            step_width = actions_per_node
+        elif cfg.expansion_width != 3:
+            step_width = cfg.expansion_width
+        else:
+            step_width = select_action_count(
+                current_state, goal, system_one_provider=cfg.system_one_provider
+            )
+
+        if expansion_depth is not None:
+            step_depth = expansion_depth
+        elif simulation_depth is not None:
+            step_depth = simulation_depth
+        elif cfg.expansion_depth != 3:
+            step_depth = cfg.expansion_depth
+        else:
+            step_depth = select_simulation_depth(
+                current_state, goal, system_one_provider=cfg.system_one_provider
+            )
 
         scramble_triggered = False
         reused_tree = False
@@ -827,7 +852,7 @@ def run_closed_loop_agent(
                 n_added = _recombine_paths(
                     _carried_tree, _carried_vocab,
                     n_paths=cfg.n_recombined_paths,
-                    path_depth=max(1, depth - 1),
+                    path_depth=max(1, step_depth - 1),
                 )
                 print(f"[tree-reuse] Recombined {n_added} unique paths.")
                 if n_added:
@@ -849,8 +874,8 @@ def run_closed_loop_agent(
             root,
             goal=goal,
             iterations=iterations_per_step,
-            actions_per_node=width,
-            expansion_depth=depth,
+            actions_per_node=step_width,
+            expansion_depth=step_depth,
             early_stop_noul=early_stop_noul,
             step=step,
             run_id=run_id,
@@ -952,7 +977,7 @@ def run_closed_loop_agent(
 
         # ── 5. ASSESS ─────────────────────────────────────────────────────────
         print(f"\n[ASSESS] Checking goal completion via Noul...")
-        if early_stop_noul and exec_result.get("verified"):
+        if early_stop_noul and (exec_result.get("verified") or exec_result.get("success")):
             is_done, conf = check_task_completion(
                 goal, current_state, system_one_provider=cfg.system_one_provider
             )
@@ -970,7 +995,7 @@ def run_closed_loop_agent(
                     f"< {NOUL_COMPLETION_THRESHOLD}). Proceeding to next step.\n"
                 )
         elif early_stop_noul:
-            print("  [ASSESS] Skipped: the chosen action was not verified.\n")
+            print("  [ASSESS] Skipped: the chosen action was not successful.\n")
 
     summary = {
         "schema_version": 1,

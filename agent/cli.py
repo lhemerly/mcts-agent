@@ -125,8 +125,8 @@ def _render_banner(
     console: Console,
     goal: str,
     mock: bool,
-    max_steps: int,
-    iterations: int,
+    max_steps: Optional[int],
+    iterations: Optional[int],
     workspace: str,
     proposal_model: Optional[str] = None,
 ) -> None:
@@ -135,11 +135,13 @@ def _render_banner(
         if mock
         else "[bold green]LIVE (Gemini & TypeSafe)[/bold green]"
     )
+    steps_text = f"{max_steps}" if max_steps is not None else "Dynamic (JEV/Noul)"
+    iter_text = f"{iterations}" if iterations is not None else "Dynamic"
     content = (
         f"[bold cyan]Monte Carlo Tree Search Agent[/bold cyan] [dim]• Closed-Loop Reasoning[/dim]\n\n"
         f"[bold]Goal:[/bold] {goal}\n"
         f"[bold]Mode:[/bold] {mode_text}\n"
-        f"[bold]Max Steps:[/bold] {max_steps}  |  [bold]Iterations/Step:[/bold] {iterations}\n"
+        f"[bold]Max Steps:[/bold] {steps_text}  |  [bold]Iterations/Step:[/bold] {iter_text}\n"
         f"[bold]Workspace:[/bold] [dim]{workspace}[/dim]"
     )
     if proposal_model:
@@ -325,11 +327,11 @@ def run(
         "--max-steps",
         help="Max steps in execute-review-adapt loop (default: dynamic mode via JEV/Noul assessment).",
     ),
-    iterations: int = typer.Option(
-        int(os.getenv("MCTS_ITERATIONS", "10")),
+    iterations: Optional[int] = typer.Option(
+        int(os.getenv("MCTS_ITERATIONS")) if os.getenv("MCTS_ITERATIONS") else None,
         "--iterations",
         "-n",
-        help="MCTS iterations per step (default: 10).",
+        help="MCTS iterations per step (default: dynamic / depth-driven).",
     ),
     sim_depth: Optional[int] = typer.Option(
         None,

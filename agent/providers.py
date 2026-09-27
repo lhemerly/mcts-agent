@@ -502,22 +502,17 @@ class AGYExecutorProvider(BaseExecutorProvider):
         workspace_dir = _safe_abspath(workspace_dir)
         abs_workspace = workspace_dir
         prompt = textwrap.dedent(f"""\
-            You are the execution agent in a closed-loop reasoning system.
-
-            Goal:
-            {goal.strip()}
+            You are a focused execution tool in a multi-step planning system.
 
             Target Workspace Directory:
             {abs_workspace}
 
-            Task:
-            Execute this planned action in this workspace:
+            Immediate Task to execute:
             >>> {action.strip()} <<<
 
             All files created or modified MUST be written inside {abs_workspace}.
-            Apply the necessary edits, write the code, or run the commands required for this action.
+            Execute ONLY this specific task. Do not attempt to solve future steps, do not write end-to-end exploit scripts unless explicitly asked by this task, and do not perform work outside this immediate task.
             Always execute commands synchronously to full completion in the foreground; do not leave background tasks running.
-            Complete the requested scope, but do not expand into unrelated future work.
         """)
 
         print(f"\n{'='*60}")
@@ -583,22 +578,17 @@ class PiExecutorProvider(BaseExecutorProvider):
     ) -> dict[str, Any]:
         abs_workspace = _safe_abspath(workspace_dir)
         prompt = textwrap.dedent(f"""\
-            You are the execution agent in a closed-loop reasoning system.
-
-            Goal:
-            {goal.strip()}
+            You are a focused execution tool in a multi-step planning system.
 
             Target Workspace Directory:
             {abs_workspace}
 
-            Task:
-            Execute this planned action in this workspace:
+            Immediate Task to execute:
             >>> {action.strip()} <<<
 
             All files created or modified MUST be written inside {abs_workspace}.
-            Apply the necessary edits, write the code, or run the commands required for this action.
+            Execute ONLY this specific task. Do not attempt to solve future steps, do not write end-to-end exploit scripts unless explicitly asked by this task, and do not perform work outside this immediate task.
             Always execute commands synchronously to full completion in the foreground; do not leave background tasks running.
-            Complete the requested scope, but do not expand into unrelated future work.
         """)
 
         print(f"\n{'='*60}")
@@ -645,15 +635,18 @@ class CodexExecutorProvider(BaseExecutorProvider):
     def execute_action(self, action: str, goal: str, workspace_dir: str) -> dict[str, Any]:
         workspace = _safe_abspath(workspace_dir)
         prompt = textwrap.dedent(f"""\
-            Goal:
-            {goal.strip()}
+            You are a focused execution tool in a multi-step planning system.
 
-            Bounded task:
-            {action.strip()}
+            Target Workspace Directory:
+            {workspace}
 
-            Work only in the supplied workspace. Complete the task and report actual
+            Bounded task to execute:
+            >>> {action.strip()} <<<
+
+            Work only in the supplied workspace. Complete ONLY this specific task and report actual
             observations, conclusions, artifacts, and workspace changes separately.
             Do not claim an experiment or test ran unless it actually ran.
+            Do not perform work outside this immediate task.
         """)
         cmd = [self.command, "exec", "--json", "--sandbox", "workspace-write", "--cd", workspace,
                "--skip-git-repo-check"]
@@ -686,22 +679,17 @@ class OpenCodeExecutorProvider(BaseExecutorProvider):
     ) -> dict[str, Any]:
         abs_workspace = _safe_abspath(workspace_dir)
         prompt = textwrap.dedent(f"""\
-            You are the execution agent in a closed-loop reasoning system.
-
-            Goal:
-            {goal.strip()}
+            You are a focused execution tool in a multi-step planning system.
 
             Target Workspace Directory:
             {abs_workspace}
 
-            Task:
-            Execute this planned action in this workspace:
+            Immediate Task to execute:
             >>> {action.strip()} <<<
 
             All files created or modified MUST be written inside {abs_workspace}.
-            Apply the necessary edits, write the code, or run the commands required for this action.
+            Execute ONLY this specific task. Do not attempt to solve future steps, do not write end-to-end exploit scripts unless explicitly asked by this task, and do not perform work outside this immediate task.
             Always execute commands synchronously to full completion in the foreground; do not leave background tasks running.
-            Complete the requested scope, but do not expand into unrelated future work.
         """)
 
         print(f"\n{'='*60}")
