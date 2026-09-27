@@ -375,93 +375,68 @@ class OpenCodePlannerProvider(BasePlannerProvider):
         )
 
         actions: list[str] = []
-        repeated_suggestions: dict[str, int] = {}
         timeout_val = self.timeout if self.timeout and self.timeout > 0 else None
+        count_str = f"{n} distinct, novel next candidate actions" if n > 1 else "ONE distinct, novel next action"
+        num_instruction = f"Output each distinct candidate action on its own line (numbered 1 to {n})." if n > 1 else "Output ONLY the single action sentence, with no commentary, numbering, bullets, or preamble."
 
-        for idx in range(n):
-            existing_actions_str = (
-                "\n".join(f"- {act}" for act in actions)
-                if actions
-                else "(No actions proposed yet for this expansion)"
-            )
+        prompt = textwrap.dedent(f"""\
+            You are a creative planning assistant. Given the overall goal and the current
+            reasoning state, propose {count_str} exploring different angles or strategies.
 
-            prompt = textwrap.dedent(f"""\
-                You are a creative planning assistant. Given the overall goal, the current
-                reasoning state, and candidate actions already proposed so far, propose
-                ONE distinct, novel next action exploring a different angle or strategy.
+            Goal:
+            {goal}
 
-                Goal:
-                {goal}
+            Current state / context:
+            {state}
 
-                Current state / context:
-                {state}
+            Actions ALREADY EXPLORED anywhere in the search tree (DO NOT reproduce these):
+            {explored_str}
 
-                Actions ALREADY EXPLORED anywhere in the search tree (DO NOT reproduce these):
-                {explored_str}
+            Instructions:
+            - {_ACTION_SCOPE_RULES}
+            - {random.choice(_CREATIVE_STRATEGIES)}
+            - Do NOT duplicate, overlap, or rephrase any action listed above.
+            - {num_instruction}
+        """)
 
-                Actions already proposed in this current expansion batch:
-                {existing_actions_str}
+        cmd = ["opencode", "run", "--standalone", "--auto"]
+        if self.model:
+            cmd.extend(["-m", self.model])
+        cmd.append(prompt)
 
-                Instructions:
-                - {_ACTION_SCOPE_RULES}
-                - {random.choice(_CREATIVE_STRATEGIES)}
-                - If the obvious answer repeats an action above, brainstorm alternatives privately and output the second or third best distinct action.
-                - Do NOT duplicate, overlap, or rephrase any action listed above (explored or batch).
-                - Output ONLY the single action sentence, with no commentary, numbering, bullets, or preamble.
-            """)
-
-            cmd = ["opencode", "run", "--standalone", "--auto"]
-            if self.model:
-                cmd.extend(["-m", self.model])
-            cmd.append(prompt)
-
-            max_retries = 3
-            chosen_action = None
-            for attempt in range(1, max_retries + 1):
-                try:
-                    proc = subprocess.run(
-                        cmd,
-                        capture_output=True,
-                        text=True,
-                        timeout=timeout_val,
-                    )
-                    if proc.returncode != 0:
-                        raise RuntimeError(f"opencode exited with code {proc.returncode}: {proc.stderr.strip() or proc.stdout.strip()}")
-                    raw = proc.stdout.strip()
-                    lines = [
-                        line.lstrip("0123456789.-*#)> ").strip().strip('"\'')
-                        for line in raw.splitlines()
-                        if line.strip() and not line.strip().startswith(">") and not line.strip().startswith("$")
-                    ]
-                    if not lines:
-                        raise ValueError(f"opencode returned no parseable action. stdout: {raw!r}")
-
-                    all_explored = {_action_key(action) for action in (explored_actions or []) + actions}
-                    for candidate in lines:
-                        if candidate and _action_key(candidate) not in all_explored:
-                            chosen_action = candidate
-                            break
-                    if chosen_action:
-                        key = _action_key(chosen_action)
-                        repeated_suggestions[key] = repeated_suggestions.get(key, 0) + 1
-                        actions.append(chosen_action)
-                        sys.stderr.write(f"[planner/opencode] Generated candidate {idx + 1}/{n}: {chosen_action!r}\n")
+        max_retries = 3
+        for attempt in range(1, max_retries + 1):
+            try:
+                proc = subprocess.run(
+                    cmd,
+                    capture_output=True,
+                    text=True,
+                    timeout=timeout_val,
+                )
+                if proc.returncode != 0:
+                    raise RuntimeError(f"opencode exited with code {proc.returncode}: {proc.stderr.strip() or proc.stdout.strip()}")
+                raw = proc.stdout.strip()
+                lines = [
+                    line.lstrip("0123456789.-*#)> ").strip().strip('"\'')
+                    for line in raw.splitlines()
+                    if line.strip() and not line.strip().startswith(">") and not line.strip().startswith("$") and len(line.strip()) > 8
+                ]
+                all_explored = {_action_key(action) for action in (explored_actions or [])}
+                for candidate in lines:
+                    ckey = _action_key(candidate)
+                    if candidate and ckey not in all_explored and ckey not in {_action_key(a) for a in actions}:
+                        actions.append(candidate)
+                        sys.stderr.write(f"[planner/opencode] Candidate {len(actions)}/{n}: {candidate!r}\n")
                         sys.stderr.flush()
-                        break
-                    else:
-                        key = _action_key(lines[0])
-                        repeated_suggestions[key] = repeated_suggestions.get(key, 0) + 1
-                        sys.stderr.write(f"[planner/opencode] Candidate {idx + 1}/{n} repeated: {lines[0]!r}\n")
-                        sys.stderr.flush()
-                        if repeated_suggestions[key] >= 4:
-                            sys.stderr.write("[planner/opencode] Same action suggested four times; stopping proposal batch.\n")
-                            sys.stderr.flush()
+                        if len(actions) >= n:
                             break
-                except Exception as exc:
-                    sys.stderr.write(f"[planner/opencode] Candidate {idx + 1}/{n} attempt {attempt}/{max_retries} failed: {exc}\n")
-                    sys.stderr.flush()
-                    if attempt < max_retries:
-                        time.sleep(3)
+                if actions:
+                    break
+            except Exception as exc:
+                sys.stderr.write(f"[planner/opencode] Attempt {attempt}/{max_retries} failed: {exc}\n")
+                sys.stderr.flush()
+                if attempt < max_retries:
+                    time.sleep(2)
 
         if not actions:
             fallback = "Survey workspace, inspect challenge contracts and local RPC instance, and construct initial PoC exploit."
